@@ -129,6 +129,9 @@ function App() {
   const [hrAttendanceDate, setHrAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
   const [hrAttendanceData, setHrAttendanceData] = useState([]);
   const [hrAttendanceEmployee, setHrAttendanceEmployee] = useState('all');
+  const [hrAttendanceView, setHrAttendanceView] = useState('daily');
+  const [summaryMonth, setSummaryMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [summaryData, setSummaryData] = useState([]);
 
   // Leave state
   const [leaveApplications, setLeaveApplications] = useState([]);
@@ -682,11 +685,17 @@ const handleHrLogin = (e) => {
 
   const loadHrAttendance = async () => {
     try {
-      let query = supabase.from('attendance').select('*, profiles(full_name, email, position)').eq('date', hrAttendanceDate).order('check_in_time', { ascending: true });
+      console.log('Loading attendance for date:', hrAttendanceDate);
+      let query = supabase
+        .from('attendance')
+        .select('*, profiles(full_name, email, position)')
+        .eq('date', hrAttendanceDate)
+        .order('created_at', { ascending: true });
       if (hrAttendanceEmployee !== 'all') query = query.eq('employee_id', hrAttendanceEmployee);
       const { data } = await query;
+      console.log('Attendance data received:', data);
       setHrAttendanceData(data || []);
-    } catch (err) { console.error(err); }
+   } catch (err) { console.error('Catch error:', err); }
   };
 
   const handleManualAttendance = async () => {
@@ -1227,6 +1236,39 @@ const loadReimbursements = async (empId) => {
       saveAs(blob, `Employee_Master_Sheet_${new Date().toISOString().split("T")[0]}.xlsx`);
     } catch (err) { console.error(err); alert("Unable to export Excel sheet."); }
   };
+  const exportAttendanceMasterSheet = async () => {
+    try {
+      const { data: records, error } = await supabase
+        .from('attendance')
+        .select('*, profiles(full_name, email, position)')
+        .order('date', { ascending: true });
+      if (error) throw error;
+
+      const exportData = (records || []).map((rec) => ({
+        "Employee Name": rec.profiles?.full_name || "",
+        "Position": rec.profiles?.position || "",
+        "Date": rec.date || "",
+        "Status": rec.status || "",
+        "Check In": rec.check_in_time ? new Date(rec.check_in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : "",
+        "Check Out": rec.check_out_time ? new Date(rec.check_out_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : "",
+        "Work Hours": rec.work_hours ?? "",
+        "Check-in Distance (m)": rec.check_in_distance_m ?? "",
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      worksheet["!cols"] = [
+        { wch: 25 }, { wch: 25 }, { wch: 14 }, { wch: 14 },
+        { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 18 },
+      ];
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Attendance");
+
+      XLSX.writeFile(workbook, `Attendance_Master_Sheet_${new Date().toISOString().split("T")[0]}.xlsx`);
+    } catch (err) {
+      console.error(err);
+      alert("Unable to export attendance sheet.");
+    }
+  };
 
   const exportSingleEmployeeSheet = (emp, details, verification, docs) => {
     try {
@@ -1586,6 +1628,7 @@ const loadReimbursements = async (empId) => {
                     {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
                   </select>
                   <button onClick={loadHrAttendance} className="btn btn-primary">Load Attendance</button>
+                  <button onClick={exportAttendanceMasterSheet} className="btn btn-secondary"><FileText size={16} /> Download Master Sheet</button>
                 </div>
 
                 <div style={{ marginBottom: '1.5rem' }}>
@@ -1634,9 +1677,9 @@ const loadReimbursements = async (empId) => {
 
                 <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
                   {[
-                    { label: 'Present', val: hrAttendanceData.filter(r => r.check_in_time).length, color: 'var(--color-success)' },
-                    { label: 'Checked Out', val: hrAttendanceData.filter(r => r.check_out_time).length, color: 'var(--color-info)' },
-                    { label: 'Still In Office', val: hrAttendanceData.filter(r => r.check_in_time && !r.check_out_time).length, color: 'var(--color-pending)' },
+                   { label: 'Present', val: hrAttendanceData.filter(r => r.status === 'present').length, color: 'var(--color-success)' },
+                    { label: 'Absent', val: hrAttendanceData.filter(r => r.status === 'absent').length, color: 'var(--color-danger)' },
+                    { label: 'WFH', val: hrAttendanceData.filter(r => r.work_type === 'wfh').length, color: 'var(--color-pending)' },
                     { label: 'WFH Today', val: hrAttendanceData.filter(r => r.work_type === 'wfh').length, color: '#c8922a' },
                     { label: 'Avg Hours', val: hrAttendanceData.filter(r => r.work_hours).length > 0 ? (hrAttendanceData.reduce((s, r) => s + (r.work_hours || 0), 0) / hrAttendanceData.filter(r => r.work_hours).length).toFixed(1) + 'h' : '—', color: 'var(--color-orange)' },
                   ].map((s, i) => (
@@ -1672,11 +1715,13 @@ const loadReimbursements = async (empId) => {
                             </td>
                             <td>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                                {rec.work_type === 'wfh' && <span className="badge badge-pending">🏠 WFH</span>}
-                                {rec.work_hours >= 8 ? <span className="badge badge-success">Full Day</span>
-                                  : rec.work_hours > 0 ? <span className="badge badge-pending">Half Day</span>
-                                  : rec.check_in_time ? <span className="badge badge-info">In Office</span>
-                                  : <span className="badge badge-danger">Absent</span>}
+                               {rec.work_type === 'wfh' && <span className="badge badge-pending">🏠 WFH</span>}
+                                {rec.work_type === 'on_tour' && <span className="badge badge-info">🚗 On Tour</span>}
+                                {rec.status === 'present' && rec.work_type === 'office' && !rec.work_type?.includes('wfh') && !rec.work_type?.includes('tour') && <span className="badge badge-success">✓ Present</span>}
+                                {rec.status === 'absent' && <span className="badge badge-danger">✗ Absent</span>}
+                                {rec.status === 'holiday' && <span className="badge badge-info">🎉 Holiday</span>}
+                                {rec.status === 'leave' && <span className="badge badge-pending">📋 Leave</span>}
+                                {rec.work_hours > 0 && <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{rec.work_hours}h</span>}
                               </div>
                             </td>
                           </tr>
