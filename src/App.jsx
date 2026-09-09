@@ -1083,6 +1083,18 @@ console.log('Office coords are:', OFFICE_LAT, OFFICE_LNG);
       const dateMap = {};
       records.forEach(r => { dateMap[r.date] = r; });
 
+      // Also fetch approved leaves for this employee in this month
+      const { data: leaveRows } = await supabase
+        .from('leave_applications')
+        .select('from_date, to_date')
+        .eq('employee_id', employeeId)
+        .eq('status', 'approved')
+        .lte('from_date', endDate)
+        .gte('to_date', startDate);
+      const approvedLeaves = leaveRows || [];
+
+      const todayStr = new Date().toISOString().split('T')[0];
+
       // Count working days in month (Mon-Sat, excluding Sundays)
       let workingDaysInMonth = 0;
       for (let d = 1; d <= daysInMonth; d++) {
@@ -1100,20 +1112,46 @@ console.log('Office coords are:', OFFICE_LAT, OFFICE_LNG);
       let sundayWorkedDays = 0;
       let compOffUsed = 0;
 
-      records.forEach(r => {
-        const dayOfWeek = new Date(r.date).getDay();
+      // Loop every calendar day to capture both recorded AND missing days
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${year}-${monthStr}-${String(d).padStart(2, '0')}`;
+        const dayOfWeek = new Date(parseInt(year), parseInt(month) - 1, d).getDay();
+
+        // Skip Sundays
         if (dayOfWeek === 0) {
-          if (r.status === 'present') sundayWorkedDays++;
-        } else {
-          if (r.status === 'present' || r.work_type === 'wfh' || r.work_type === 'on_tour') presentDays++;
-          else if (r.status === 'absent') absentDays++;
-          else if (r.status === 'half_day') halfDays++;
-          else if (r.status === 'leave') leaveDays++;
-          else if (r.status === 'holiday') holidayDays++;
-          else if (r.status === 'weekly_off') weeklyOffDays++;
-          else if (r.status === 'comp_off') compOffUsed++;
+          const rec = dateMap[dateStr];
+          if (rec && rec.status === 'present') sundayWorkedDays++;
+          continue;
         }
-      });
+
+        // Skip future dates (don't mark upcoming days as absent)
+        if (dateStr > todayStr) continue;
+
+        const isFestival = FESTIVALS.some(f => f.month === monthStr && f.day === String(d).padStart(2, '0'));
+        const isOnLeave = approvedLeaves.some(l => dateStr >= l.from_date && dateStr <= l.to_date);
+        const rec = dateMap[dateStr];
+
+        if (rec) {
+          // Has an attendance record — classify it
+          if (rec.status === 'present' || rec.work_type === 'wfh' || rec.work_type === 'on_tour') presentDays++;
+          else if (rec.status === 'absent') absentDays++;
+          else if (rec.status === 'half_day') halfDays++;
+          else if (rec.status === 'leave') leaveDays++;
+          else if (rec.status === 'holiday') holidayDays++;
+          else if (rec.status === 'weekly_off') weeklyOffDays++;
+          else if (rec.status === 'comp_off') compOffUsed++;
+          else if (rec.status === 'tour') onTourDays++;
+        } else if (isOnLeave) {
+          // Approved leave application covers this day
+          leaveDays++;
+        } else if (isFestival) {
+          // Public holiday — not absent
+          holidayDays++;
+        } else {
+          // No record, not a holiday, not on leave → absent
+          absentDays++;
+        }
+      }
 
       const leavesAllowed = 1.0;
       const leavesTaken = absentDays + (halfDays * 0.5);
