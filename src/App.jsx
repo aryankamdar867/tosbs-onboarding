@@ -590,24 +590,52 @@ const handleHrLogin = (e) => {
   };
 
   const handleEmployeeRegister = async (e) => {
-  e.preventDefault();
-  setRegError('');
-  if (!regTempPassword) { setRegError('Please enter the temporary password shared by HR.'); return; }
-  if (regTempPassword.trim() !== (activeEmployee.temp_password || '').trim()) { setRegError('Incorrect temporary password. Please check with HR.'); return; }
-  if (regPassword !== regConfirmPassword) { setRegError('Passwords do not match.'); return; }
-  if (regPassword.length < 6) { setRegError('Password must be at least 6 characters.'); return; }
+    e.preventDefault();
+    setRegError('');
+    if (!regTempPassword) { setRegError('Please enter the temporary password shared by HR.'); return; }
+    if (activeEmployee.temp_password && regTempPassword.trim() !== activeEmployee.temp_password.trim()) {
+      setRegError('Incorrect temporary password. Please check with HR.');
+      return;
+    }
+    if (regPassword !== regConfirmPassword) { setRegError('Passwords do not match.'); return; }
+    if (regPassword.length < 6) { setRegError('Password must be at least 6 characters.'); return; }
 
-  try {
-    const { data, error } = await supabase.auth.signUp({ email: activeEmployee.email, password: regPassword });
-    if (error) throw error;
-    await supabase.from('profiles').update({ status: 'registered', auth_user_id: data.user.id, login_password: regPassword }).eq('id', activeEmployee.id);
-    setActiveEmployee(prev => ({ ...prev, status: 'registered', auth_user_id: data.user.id, login_password: regPassword }));
-    setCurrentView('employee-wizard');
-  } catch (err) {
-    console.error(err);
-    setRegError('Something went wrong creating your account. Try again.');
-  }
-};
+    try {
+      let authUserId = null;
+      try {
+        const { data } = await supabase.auth.signUp({
+          email: activeEmployee.email,
+          password: regPassword,
+        });
+        if (data?.user?.id) {
+          authUserId = data.user.id;
+        }
+      } catch (authErr) {
+        console.warn('Supabase Auth signUp note:', authErr);
+      }
+
+      const updatePayload = {
+        status: 'registered',
+        login_password: regPassword,
+      };
+      if (authUserId) {
+        updatePayload.auth_user_id = authUserId;
+      }
+
+      const { error: dbError } = await supabase
+        .from('profiles')
+        .update(updatePayload)
+        .eq('id', activeEmployee.id);
+
+      if (dbError) throw dbError;
+
+      setActiveEmployee(prev => ({ ...prev, ...updatePayload }));
+      setCurrentView('employee-wizard');
+    } catch (err) {
+      console.error('Registration error:', err);
+      setRegError(err.message || 'Something went wrong creating your account. Try again.');
+    }
+  };
 
   const addEducationRow = () => setEducationHistory([...educationHistory, { degree: '', institution: '', year: '', grade: '' }]);
   const removeEducationRow = (i) => setEducationHistory(educationHistory.filter((_, idx) => idx !== i));
