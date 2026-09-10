@@ -1114,7 +1114,7 @@ console.log('Office coords are:', OFFICE_LAT, OFFICE_LNG);
 
       // Loop every calendar day to capture both recorded AND missing days
       for (let d = 1; d <= daysInMonth; d++) {
-        const dateStr = `${year}-${monthStr}-${String(d).padStart(2, '0')}`;
+        const dateStr = `${year}-${month}-${String(d).padStart(2, '0')}`;
         const dayOfWeek = new Date(parseInt(year), parseInt(month) - 1, d).getDay();
 
         // Skip Sundays
@@ -1127,7 +1127,7 @@ console.log('Office coords are:', OFFICE_LAT, OFFICE_LNG);
         // Skip future dates (don't mark upcoming days as absent)
         if (dateStr > todayStr) continue;
 
-        const isFestival = FESTIVALS.some(f => f.month === monthStr && f.day === String(d).padStart(2, '0'));
+        const isFestival = FESTIVALS.some(f => f.month === month && f.day === String(d).padStart(2, '0'));
         const isOnLeave = approvedLeaves.some(l => dateStr >= l.from_date && dateStr <= l.to_date);
         const rec = dateMap[dateStr];
 
