@@ -8,7 +8,8 @@ import {
   Users, UserCheck, ShieldAlert, Award,
   Plus, Search, Copy, Check, X, Clock, Eye, Trash2,
   LogOut, LayoutDashboard, FileText, CheckCircle2,
-  Lock, ArrowRight, MapPin, Building, CreditCard, Bell, CalendarDays, Gift
+  Lock, ArrowRight, MapPin, Building, CreditCard, Bell, CalendarDays, Gift,
+  UserMinus, AlertCircle, Calendar
 } from 'lucide-react';
 // Festival calendar — auto-checked against today's date, no manual entry needed.
 // Fixed-date festivals repeat every year. Movable ones (Holi, Eid, Diwali, etc.)
@@ -178,7 +179,17 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [festivalsToday, setFestivalsToday] = useState([]);
- useEffect(() => {
+
+  // Resignation state
+  const [hrResignations, setHrResignations] = useState([]);
+  const [myResignation, setMyResignation] = useState(null);
+  const [resignationForm, setResignationForm] = useState({ reason: '', requested_last_day: '', notes: '' });
+  const [resignationSubmitting, setResignationSubmitting] = useState(false);
+  const [resignationError, setResignationError] = useState('');
+  const [hrResignFilter, setHrResignFilter] = useState('all');
+  const [hrResignActions, setHrResignActions] = useState({});
+
+  useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) return;
       const role = session.user.user_metadata?.role;
@@ -188,14 +199,22 @@ function App() {
         loadHrCelebrations();
       } else {
         const { data } = await supabase.from('profiles').select('*').eq('auth_user_id', session.user.id).single();
-        if (data && ['digilocker_verified', 'approved'].includes(data.status)) {
-          setActiveEmployee(data);
-          loadActiveEmployeeDetails(data.id);
-          setCurrentView('employee-status');
-          loadTodayAttendance(data.id);
-          loadAttendanceHistory(data.id);
-          loadEmployeeLeaves(data.id);
-          loadCelebrationsAndNotifications(data.id);
+        if (data) {
+          if (['resigned', 'deactivated', 'inactive'].includes(data.status)) {
+            await supabase.auth.signOut();
+            alert('Your account has been deactivated as your notice period and offboarding are complete. Please contact HR for any queries.');
+            return;
+          }
+          if (['digilocker_verified', 'approved'].includes(data.status)) {
+            setActiveEmployee(data);
+            loadActiveEmployeeDetails(data.id);
+            setCurrentView('employee-status');
+            loadTodayAttendance(data.id);
+            loadAttendanceHistory(data.id);
+            loadEmployeeLeaves(data.id);
+            loadCelebrationsAndNotifications(data.id);
+            loadEmployeeResignation(data.id);
+          }
         }
       }
     });
@@ -400,6 +419,10 @@ const handleHrLogin = (e) => {
 
     if (error || !data) { setEmpLoginError('No account found with this email.'); return; }
     if (data.status === 'invited') { setEmpLoginError('Please use your invite link to register first.'); return; }
+    if (['resigned', 'deactivated', 'inactive'].includes(data.status)) {
+      setEmpLoginError('Your account has been deactivated as your notice period and offboarding are complete. Please contact HR for assistance.');
+      return;
+    }
     if ((data.login_password || '').trim() !== empLoginPassword.trim()) { setEmpLoginError('Incorrect password.'); return; }
     setActiveEmployee(data);
     const { data: details } = await supabase.from('employee_details').select('*').eq('employee_id', data.id).single();
@@ -412,6 +435,7 @@ const handleHrLogin = (e) => {
         loadAttendanceHistory(data.id);
         loadEmployeeLeaves(data.id);
         loadCelebrationsAndNotifications(data.id);
+        loadEmployeeResignation(data.id);
       } else {
         setWizardPersonal({
           phone: details.phone_number || '', personalEmail: details.personal_email || '', dob: details.dob || '',
@@ -1154,7 +1178,8 @@ console.log('Office coords are:', OFFICE_LAT, OFFICE_LNG);
       }
 
       const leavesAllowed = 1.0;
-      const leavesTaken = absentDays + (halfDays * 0.5);
+      // leavesTaken includes both unrecorded absents AND approved leave applications
+      const leavesTaken = absentDays + leaveDays + (halfDays * 0.5);
       const excessLeaves = Math.max(0, leavesTaken - leavesAllowed);
       const extraDaysWorked = 0;
       const netPayDays = daysInMonth - excessLeaves + extraDaysWorked;
@@ -1763,6 +1788,243 @@ const loadReimbursements = async (empId) => {
       XLSX.writeFile(wb, `TOSBS_Reimbursements_${new Date().toISOString().split('T')[0]}.xlsx`);
     } catch (err) { console.error(err); alert('Export failed.'); }
   };
+
+  // ---------- Resignation Handlers ----------
+  const loadEmployeeResignation = async (empId) => {
+    if (!empId) return;
+    try {
+      const { data, error } = await supabase
+        .from('resignations')
+        .select('*')
+        .eq('employee_id', empId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error loading resignation:', error);
+        return;
+      }
+
+      if (data) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        // Check 5-day auto-deactivation
+        if ((data.status === 'notice_period' || data.status === 'approved') && data.notice_end_date) {
+          const endD = new Date(data.notice_end_date);
+          const autoDeactD = new Date(endD);
+          autoDeactD.setDate(autoDeactD.getDate() + 5);
+          const autoDeactStr = autoDeactD.toISOString().split('T')[0];
+
+          if (todayStr >= autoDeactStr) {
+            await supabase.from('resignations').update({ status: 'deactivated', deactivated_at: new Date().toISOString() }).eq('id', data.id);
+            await supabase.from('profiles').update({ status: 'resigned' }).eq('id', empId);
+            data.status = 'deactivated';
+            alert('Your notice period has completed and your account has been deactivated. Thank you for your service at TOSBS.');
+            await supabase.auth.signOut();
+            setActiveEmployee(null);
+            setCurrentView('splash');
+            return;
+          }
+        }
+        setMyResignation(data);
+      } else {
+        setMyResignation(null);
+      }
+    } catch (err) {
+      console.error('Error loading resignation:', err);
+    }
+  };
+
+  const loadHrResignations = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('resignations')
+        .select('*, profiles(id, full_name, email, position, status)')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading HR resignations:', error);
+        return;
+      }
+
+      const todayStr = new Date().toISOString().split('T')[0];
+      const updatedList = [];
+
+      for (const r of (data || [])) {
+        // Check 5-day auto-deactivation
+        if ((r.status === 'notice_period' || r.status === 'approved') && r.notice_end_date) {
+          const endD = new Date(r.notice_end_date);
+          const autoDeactD = new Date(endD);
+          autoDeactD.setDate(autoDeactD.getDate() + 5);
+          const autoDeactStr = autoDeactD.toISOString().split('T')[0];
+
+          if (todayStr >= autoDeactStr) {
+            await supabase.from('resignations').update({ status: 'deactivated', deactivated_at: new Date().toISOString() }).eq('id', r.id);
+            await supabase.from('profiles').update({ status: 'resigned' }).eq('id', r.employee_id);
+            r.status = 'deactivated';
+          }
+        }
+        updatedList.push(r);
+      }
+
+      setHrResignations(updatedList);
+    } catch (err) {
+      console.error('Error in loadHrResignations:', err);
+    }
+  };
+
+  const handleApplyResignation = async () => {
+    setResignationError('');
+    if (!resignationForm.reason.trim()) {
+      setResignationError('Please provide a reason for resignation.');
+      return;
+    }
+    if (!resignationForm.requested_last_day) {
+      setResignationError('Please select your desired last working day.');
+      return;
+    }
+
+    setResignationSubmitting(true);
+    try {
+      const { error } = await supabase.from('resignations').insert({
+        employee_id: activeEmployee.id,
+        reason: resignationForm.reason.trim(),
+        requested_last_day: resignationForm.requested_last_day,
+        notes: resignationForm.notes?.trim() || null,
+        status: 'pending',
+      });
+
+      if (error) throw error;
+
+      // Broadcast notification to HR
+      try {
+        await supabase.from('notifications').insert({
+          employee_id: null,
+          title: `📄 New Resignation Request — ${activeEmployee.full_name}`,
+          message: `${activeEmployee.full_name} (${activeEmployee.position || 'Employee'}) has submitted a resignation request with desired last day ${resignationForm.requested_last_day}. Reason: ${resignationForm.reason}`,
+          is_announcement: false,
+        });
+      } catch (ne) { console.error('Notification insert failed:', ne); }
+
+      alert('Resignation request submitted successfully. HR will review and assign your notice period.');
+      setResignationForm({ reason: '', requested_last_day: '', notes: '' });
+      loadEmployeeResignation(activeEmployee.id);
+    } catch (err) {
+      console.error(err);
+      setResignationError(err.message || 'Failed to submit resignation. Please try again.');
+    }
+    setResignationSubmitting(false);
+  };
+
+  const handleApproveResignation = async (resignationId, employeeId, noticeDays, startDate, hrNote = '') => {
+    const days = parseInt(noticeDays) || 30;
+    const start = startDate || new Date().toISOString().split('T')[0];
+    const startD = new Date(start);
+    const endD = new Date(startD);
+    endD.setDate(endD.getDate() + days);
+    const endDate = endD.toISOString().split('T')[0];
+
+    try {
+      const { error } = await supabase.from('resignations').update({
+        status: 'notice_period',
+        notice_period_days: days,
+        notice_start_date: start,
+        notice_end_date: endDate,
+        hr_note: hrNote || null,
+        approved_at: new Date().toISOString(),
+      }).eq('id', resignationId);
+
+      if (error) throw error;
+
+      // Notify employee
+      try {
+        await supabase.from('notifications').insert({
+          employee_id: employeeId,
+          title: '📋 Resignation Approved & Notice Period Assigned',
+          message: `Your resignation has been approved. Notice period: ${days} days (from ${start} to ${endDate}). Normal salary will be processed during your notice period.`,
+          is_announcement: false,
+        });
+      } catch (ne) { console.error('Notify emp failed:', ne); }
+
+      alert(`Resignation approved! Notice period set to ${days} days (Ends on ${endDate}). Account will auto-deactivate 5 days after notice ends.`);
+      loadHrResignations();
+      loadEmployees();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to approve resignation: ' + err.message);
+    }
+  };
+
+  const handleRejectResignation = async (resignationId, employeeId, hrNote = '') => {
+    try {
+      const { error } = await supabase.from('resignations').update({
+        status: 'rejected',
+        hr_note: hrNote || null,
+        reviewed_at: new Date().toISOString(),
+      }).eq('id', resignationId);
+
+      if (error) throw error;
+
+      // Notify employee
+      try {
+        await supabase.from('notifications').insert({
+          employee_id: employeeId,
+          title: '❌ Resignation Request Rejected',
+          message: `Your resignation request has been rejected by HR.${hrNote ? ' Note: ' + hrNote : ''} Please contact HR for discussion.`,
+          is_announcement: false,
+        });
+      } catch (ne) { console.error('Notify emp failed:', ne); }
+
+      alert('Resignation request rejected.');
+      loadHrResignations();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to reject resignation.');
+    }
+  };
+
+  const handleDeactivateResignedEmployee = async (resignationId, employeeId) => {
+    if (!confirm('Are you sure you want to deactivate this employee account? They will no longer be able to log in.')) return;
+    try {
+      await supabase.from('profiles').update({ status: 'resigned' }).eq('id', employeeId);
+      await supabase.from('resignations').update({
+        status: 'deactivated',
+        deactivated_at: new Date().toISOString(),
+      }).eq('id', resignationId);
+
+      alert('Employee account has been deactivated successfully.');
+      loadHrResignations();
+      loadEmployees();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to deactivate account.');
+    }
+  };
+
+  const exportResignationsExcel = () => {
+    try {
+      const rows = hrResignations.map(r => ({
+        'Employee': r.profiles?.full_name || '—',
+        'Email': r.profiles?.email || '—',
+        'Position': r.profiles?.position || '—',
+        'Reason': r.reason || '—',
+        'Requested Last Day': r.requested_last_day || '—',
+        'Notice Period (Days)': r.notice_period_days || '—',
+        'Notice Start Date': r.notice_start_date || '—',
+        'Notice End Date': r.notice_end_date || '—',
+        'Status': r.status,
+        'HR Note': r.hr_note || '—',
+        'Approved At': r.approved_at ? new Date(r.approved_at).toLocaleDateString('en-IN') : '—',
+        'Deactivated At': r.deactivated_at ? new Date(r.deactivated_at).toLocaleDateString('en-IN') : '—',
+        'Applied At': r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN') : '—',
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [{ wch: 22 }, { wch: 28 }, { wch: 22 }, { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 25 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Resignations');
+      XLSX.writeFile(wb, `TOSBS_Resignations_${new Date().toISOString().split('T')[0]}.xlsx`);
+    } catch (err) { console.error(err); alert('Export failed.'); }
+  };
   const handleDigiLockerSuccess = (verifiedData) => setDigiLockerDetails(verifiedData);
 
   const handleWizardSubmit = async () => {
@@ -2228,6 +2490,10 @@ const loadReimbursements = async (empId) => {
                 <CreditCard size={18} /><span>Reimbursements</span>
                 {hrReimbursements.filter(r => r.status === 'pending').length > 0 && <span style={badgeCountStyle}>{hrReimbursements.filter(r => r.status === 'pending').length}</span>}
               </button>
+              <button onClick={() => { setHrActiveTab('resignations'); loadHrResignations(); }} style={hrActiveTab === 'resignations' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+                <UserMinus size={18} /><span>Resignations</span>
+                {hrResignations.filter(r => r.status === 'pending').length > 0 && <span style={badgeCountStyle}>{hrResignations.filter(r => r.status === 'pending').length}</span>}
+              </button>
               <button onClick={() => setShowAnnouncement(!showAnnouncement)} style={sidebarLinkStyle}>
                 <Bell size={18} /><span>Announce</span>
               </button>
@@ -2305,12 +2571,15 @@ const loadReimbursements = async (empId) => {
             <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
               <div>
                 <h1 style={{ fontSize: '2rem', fontWeight: 800 }}>
-                  {hrActiveTab === 'analytics' ? 'HR Dashboard' : hrActiveTab === 'attendance' ? 'Attendance Records' : hrActiveTab === 'leaves' ? 'Leave Requests' : hrActiveTab === 'reimbursements' ? 'Reimbursements' : 'Employee Profiles'}
+                  {hrActiveTab === 'analytics' ? 'HR Dashboard' : hrActiveTab === 'attendance' ? 'Attendance Records' : hrActiveTab === 'leaves' ? 'Leave Requests' : hrActiveTab === 'salary' ? 'Salary & Payroll' : hrActiveTab === 'reimbursements' ? 'Reimbursements' : hrActiveTab === 'resignations' ? 'Resignations & Offboarding' : 'Employee Profiles'}
                 </h1>
                 <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
                   {hrActiveTab === 'analytics' ? 'Real-time workforce efficiency and onboarding tracking metrics.'
                     : hrActiveTab === 'attendance' ? 'Review daily check-in/check-out records across the team.'
                     : hrActiveTab === 'leaves' ? 'Approve or reject employee leave applications.'
+                    : hrActiveTab === 'salary' ? 'Monthly CTC configuration and compensation breakdowns.'
+                    : hrActiveTab === 'reimbursements' ? 'Review and process employee expense claims.'
+                    : hrActiveTab === 'resignations' ? 'Manage employee resignation requests, notice periods, and automated 5-day deactivation.'
                     : 'Manage registrations and monitor your global human capital pipelines.'}
                 </p>
               </div>
@@ -2789,6 +3058,372 @@ const loadReimbursements = async (empId) => {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {hrActiveTab === 'resignations' && (
+              <div>
+                {/* Stats */}
+                <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
+                  {[
+                    { label: 'Pending Requests', val: hrResignations.filter(r => r.status === 'pending').length, color: 'var(--color-pending)', icon: <Clock size={20} color="var(--color-pending)" /> },
+                    { label: 'Serving Notice', val: hrResignations.filter(r => (r.status === 'notice_period' || r.status === 'approved') && (!r.notice_end_date || r.notice_end_date >= new Date().toISOString().split('T')[0])).length, color: 'var(--color-orange)', icon: <CalendarDays size={20} color="var(--color-orange)" /> },
+                    { label: 'Notice Over (5d Grace)', val: hrResignations.filter(r => (r.status === 'notice_period' || r.status === 'approved') && r.notice_end_date && r.notice_end_date < new Date().toISOString().split('T')[0]).length, color: '#f59e0b', icon: <AlertCircle size={20} color="#f59e0b)" /> },
+                    { label: 'Deactivated Accounts', val: hrResignations.filter(r => r.status === 'deactivated').length, color: 'var(--color-text-muted)', icon: <UserMinus size={20} color="var(--color-text-muted)" /> },
+                  ].map((s, i) => (
+                    <div key={i} className="glass-card" style={{ padding: '1.25rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{s.label}</p>
+                        {s.icon}
+                      </div>
+                      <h3 style={{ margin: 0, fontSize: '2rem', fontWeight: 800, color: s.color }}>{s.val}</h3>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Filters & Export */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {[
+                      { id: 'all', label: 'All Requests' },
+                      { id: 'pending', label: 'Pending Review' },
+                      { id: 'notice_period', label: 'Serving Notice' },
+                      { id: 'notice_over', label: 'Notice Ended (5d Grace)' },
+                      { id: 'deactivated', label: 'Deactivated' },
+                    ].map(f => (
+                      <button
+                        key={f.id}
+                        onClick={() => setHrResignFilter(f.id)}
+                        className={hrResignFilter === f.id ? 'btn btn-primary' : 'btn btn-secondary'}
+                        style={{ fontSize: '0.8rem', padding: '0.4rem 0.85rem' }}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={exportResignationsExcel} className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <FileText size={16} /> Export Resignations to Excel
+                  </button>
+                </div>
+
+                {/* Resignation Cards */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  {(() => {
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    const filtered = hrResignations.filter(r => {
+                      if (hrResignFilter === 'pending') return r.status === 'pending';
+                      if (hrResignFilter === 'notice_period') return (r.status === 'notice_period' || r.status === 'approved') && (!r.notice_end_date || r.notice_end_date >= todayStr);
+                      if (hrResignFilter === 'notice_over') return (r.status === 'notice_period' || r.status === 'approved') && r.notice_end_date && r.notice_end_date < todayStr;
+                      if (hrResignFilter === 'deactivated') return r.status === 'deactivated';
+                      return true;
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="glass-card" style={{ textAlign: 'center', padding: '2.5rem' }}>
+                          <p style={{ ...noDataStyle, fontSize: '0.95rem' }}>No resignation records found in this category.</p>
+                        </div>
+                      );
+                    }
+
+                    return filtered.map((r, i) => {
+                      const empName = r.profiles?.full_name || 'Employee';
+                      const empEmail = r.profiles?.email || '—';
+                      const empPos = r.profiles?.position || 'Employee';
+                      const isPending = r.status === 'pending';
+                      const isServingNotice = (r.status === 'notice_period' || r.status === 'approved') && (!r.notice_end_date || r.notice_end_date >= todayStr);
+                      const isNoticeOver = (r.status === 'notice_period' || r.status === 'approved') && r.notice_end_date && r.notice_end_date < todayStr;
+                      const isDeactivated = r.status === 'deactivated';
+
+                      // Calculations for notice period
+                      let daysRemaining = 0;
+                      let daysElapsed = 0;
+                      let progressPercent = 0;
+                      let autoDeactivateDaysLeft = 5;
+
+                      if (r.notice_start_date && r.notice_end_date) {
+                        const startD = new Date(r.notice_start_date);
+                        const endD = new Date(r.notice_end_date);
+                        const todayD = new Date(todayStr);
+                        const totalDays = Math.max(1, Math.round((endD - startD) / (1000 * 60 * 60 * 24)));
+
+                        if (todayD <= endD) {
+                          daysRemaining = Math.max(0, Math.round((endD - todayD) / (1000 * 60 * 60 * 24)));
+                          daysElapsed = totalDays - daysRemaining;
+                          progressPercent = Math.min(100, Math.max(0, Math.round((daysElapsed / totalDays) * 100)));
+                        } else {
+                          // Notice ended, calculate 5-day grace window
+                          const daysSinceEnd = Math.round((todayD - endD) / (1000 * 60 * 60 * 24));
+                          autoDeactivateDaysLeft = Math.max(0, 5 - daysSinceEnd);
+                        }
+                      }
+
+                      const currentAction = hrResignActions[r.id] || {
+                        notice_period_days: 30,
+                        notice_start_date: todayStr,
+                        hr_note: '',
+                      };
+
+                      return (
+                        <div
+                          key={r.id || i}
+                          className="glass-card"
+                          style={{
+                            border: `1px solid ${isPending ? 'rgba(200,146,42,0.3)' : isServingNotice ? 'rgba(59,130,246,0.3)' : isNoticeOver ? 'rgba(245,158,11,0.4)' : isDeactivated ? 'rgba(100,116,139,0.2)' : 'var(--border-color)'}`,
+                            backgroundColor: isNoticeOver ? 'rgba(245,158,11,0.03)' : 'var(--bg-card)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+                            {/* Employee Info Header */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                              <div className="avatar-circle" style={{ width: '42px', height: '42px', fontSize: '1rem', flexShrink: 0, backgroundColor: isDeactivated ? '#64748b' : '#c8922a' }}>
+                                {empName.charAt(0)}
+                              </div>
+                              <div>
+                                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>{empName}</h3>
+                                <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                                  {empPos} • {empEmail}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Status Badge */}
+                            <div>
+                              {isPending && <span className="badge badge-pending">⏳ Awaiting HR Review</span>}
+                              {isServingNotice && <span className="badge" style={{ backgroundColor: 'rgba(59,130,246,0.15)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}>📋 Serving Notice ({daysRemaining} days left)</span>}
+                              {isNoticeOver && <span className="badge" style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#d97706', border: '1px solid rgba(245,158,11,0.3)' }}>⚠️ Notice Over (Auto-deactivation in {autoDeactivateDaysLeft}d)</span>}
+                              {isDeactivated && <span className="badge" style={{ backgroundColor: 'rgba(100,116,139,0.15)', color: '#64748b', border: '1px solid rgba(100,116,139,0.3)' }}>🔒 Account Deactivated</span>}
+                              {r.status === 'rejected' && <span className="badge badge-danger">✗ Rejected</span>}
+                            </div>
+                          </div>
+
+                          {/* Submission Details */}
+                          <div style={{ padding: '1rem', backgroundColor: 'rgba(0,0,0,0.02)', borderRadius: '10px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                              <div>
+                                <p style={detailLabelStyle}>Reason for Resignation</p>
+                                <p style={{ ...detailValueStyle, fontWeight: 600 }}>{r.reason || '—'}</p>
+                              </div>
+                              <div>
+                                <p style={detailLabelStyle}>Requested Last Day</p>
+                                <p style={detailValueStyle}>{r.requested_last_day || '—'}</p>
+                              </div>
+                              <div>
+                                <p style={detailLabelStyle}>Applied On</p>
+                                <p style={detailValueStyle}>{r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN') : '—'}</p>
+                              </div>
+                              {r.notice_period_days && (
+                                <div>
+                                  <p style={detailLabelStyle}>Approved Notice Period</p>
+                                  <p style={{ ...detailValueStyle, color: 'var(--color-orange)', fontWeight: 700 }}>{r.notice_period_days} Days</p>
+                                </div>
+                              )}
+                            </div>
+                            {r.notes && (
+                              <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed var(--border-color)' }}>
+                                <p style={detailLabelStyle}>Employee Notes</p>
+                                <p style={{ margin: '2px 0 0', fontSize: '0.83rem', color: 'var(--color-text-secondary)' }}>{r.notes}</p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Notice Period Timeline Bar */}
+                          {(isServingNotice || isNoticeOver) && r.notice_start_date && r.notice_end_date && (
+                            <div style={{ padding: '1rem', backgroundColor: 'rgba(59,130,246,0.04)', borderRadius: '10px', border: '1px solid rgba(59,130,246,0.15)', marginBottom: '1rem' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <CalendarDays size={16} color="#3b82f6" />
+                                  <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>Notice Timeline: {r.notice_start_date} → {r.notice_end_date}</span>
+                                </div>
+                                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: isNoticeOver ? '#d97706' : '#3b82f6' }}>
+                                  {isNoticeOver ? 'Notice Completed ✓' : `${daysRemaining} days remaining`}
+                                </span>
+                              </div>
+
+                              <div style={{ width: '100%', height: '8px', backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: '4px', overflow: 'hidden', marginBottom: '0.5rem' }}>
+                                <div style={{ width: `${progressPercent}%`, height: '100%', backgroundColor: isNoticeOver ? '#10b981' : '#3b82f6', transition: 'width 0.3s ease' }} />
+                              </div>
+
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
+                                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                                  💰 Normal salary calculation continues during notice period based on daily attendance.
+                                </p>
+                                <button
+                                  onClick={() => {
+                                    setHrActiveTab('salary');
+                                    setHrSalaryEmployee(r.employee_id);
+                                    computeSalary(r.employee_id, salaryMonth);
+                                  }}
+                                  className="btn btn-secondary"
+                                  style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
+                                >
+                                  View Notice Salary ➔
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Notice Over 5-Day Auto-Deactivation Warning Banner */}
+                          {isNoticeOver && (
+                            <div style={{ padding: '0.85rem 1rem', backgroundColor: 'rgba(245,158,11,0.1)', borderRadius: '8px', border: '1px solid rgba(245,158,11,0.3)', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                <AlertCircle size={18} color="#d97706" />
+                                <div>
+                                  <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: '#92400e' }}>
+                                    Notice Period Ended on {r.notice_end_date}
+                                  </p>
+                                  <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#b45309' }}>
+                                    Account will automatically deactivate in <strong>{autoDeactivateDaysLeft} day(s)</strong>, or you can deactivate it now.
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleDeactivateResignedEmployee(r.id, r.employee_id)}
+                                className="btn btn-danger"
+                                style={{ fontSize: '0.78rem', padding: '0.45rem 0.9rem' }}
+                              >
+                                🔒 Deactivate Account Now
+                              </button>
+                            </div>
+                          )}
+
+                          {/* HR Note */}
+                          {r.hr_note && (
+                            <div style={{ marginBottom: '0.75rem', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                              <strong>HR Note:</strong> {r.hr_note}
+                            </div>
+                          )}
+
+                          {/* Action Forms */}
+                          {isPending && (
+                            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', backgroundColor: 'rgba(200,146,42,0.03)', padding: '1rem', borderRadius: '8px' }}>
+                              <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.88rem', fontWeight: 700, color: 'var(--color-orange)' }}>
+                                Assign Notice Period & Decision
+                              </h4>
+
+                              {/* Quick notice period preset buttons */}
+                              <div style={{ marginBottom: '0.75rem' }}>
+                                <label className="form-label" style={{ fontSize: '0.75rem' }}>Notice Period Duration (Days)</label>
+                                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+                                  {[15, 30, 45, 60, 90].map(days => (
+                                    <button
+                                      key={days}
+                                      type="button"
+                                      onClick={() => {
+                                        setHrResignActions(prev => ({
+                                          ...prev,
+                                          [r.id]: { ...(prev[r.id] || currentAction), notice_period_days: days }
+                                        }));
+                                      }}
+                                      className={currentAction.notice_period_days === days ? 'btn btn-primary' : 'btn btn-secondary'}
+                                      style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
+                                    >
+                                      {days} Days
+                                    </button>
+                                  ))}
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                                  <div>
+                                    <label className="form-label" style={{ fontSize: '0.72rem' }}>Custom Notice Days</label>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max="180"
+                                      className="form-input"
+                                      value={currentAction.notice_period_days}
+                                      onChange={(e) => {
+                                        const val = parseInt(e.target.value) || 0;
+                                        setHrResignActions(prev => ({
+                                          ...prev,
+                                          [r.id]: { ...(prev[r.id] || currentAction), notice_period_days: val }
+                                        }));
+                                      }}
+                                      style={{ fontSize: '0.85rem' }}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="form-label" style={{ fontSize: '0.72rem' }}>Notice Start Date</label>
+                                    <input
+                                      type="date"
+                                      className="form-input"
+                                      value={currentAction.notice_start_date}
+                                      onChange={(e) => {
+                                        setHrResignActions(prev => ({
+                                          ...prev,
+                                          [r.id]: { ...(prev[r.id] || currentAction), notice_start_date: e.target.value }
+                                        }));
+                                      }}
+                                      style={{ fontSize: '0.85rem' }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Calculated End Date Preview */}
+                              {(() => {
+                                const sDate = new Date(currentAction.notice_start_date || todayStr);
+                                const eDate = new Date(sDate);
+                                eDate.setDate(eDate.getDate() + (parseInt(currentAction.notice_period_days) || 30));
+                                return (
+                                  <div style={{ marginBottom: '0.75rem', padding: '0.5rem 0.75rem', backgroundColor: 'rgba(59,130,246,0.06)', borderRadius: '6px', fontSize: '0.78rem', color: '#1e40af' }}>
+                                    📅 <strong>Calculated Last Working Day:</strong> {eDate.toISOString().split('T')[0]} (Account will auto-deactivate 5 days later)
+                                  </div>
+                                );
+                              })()}
+
+                              <div style={{ marginBottom: '0.75rem' }}>
+                                <label className="form-label" style={{ fontSize: '0.72rem' }}>HR Note / Instructions (Optional)</label>
+                                <input
+                                  type="text"
+                                  placeholder="e.g. Please handover client credentials to team lead"
+                                  className="form-input"
+                                  value={currentAction.hr_note || ''}
+                                  onChange={(e) => {
+                                    setHrResignActions(prev => ({
+                                      ...prev,
+                                      [r.id]: { ...(prev[r.id] || currentAction), hr_note: e.target.value }
+                                    }));
+                                  }}
+                                  style={{ fontSize: '0.85rem' }}
+                                />
+                              </div>
+
+                              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                                <button
+                                  onClick={() => handleRejectResignation(r.id, r.employee_id, currentAction.hr_note)}
+                                  className="btn btn-danger"
+                                  style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}
+                                >
+                                  ✗ Reject Request
+                                </button>
+                                <button
+                                  onClick={() => handleApproveResignation(r.id, r.employee_id, currentAction.notice_period_days, currentAction.notice_start_date, currentAction.hr_note)}
+                                  className="btn btn-primary"
+                                  style={{ fontSize: '0.8rem', padding: '0.45rem 1.25rem' }}
+                                >
+                                  ✓ Approve & Start Notice Period
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Active / Notice Over Manual Deactivate Button */}
+                          {(isServingNotice || isNoticeOver) && (
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
+                              <button
+                                onClick={() => handleDeactivateResignedEmployee(r.id, r.employee_id)}
+                                className="btn btn-danger"
+                                style={{ fontSize: '0.75rem', padding: '0.35rem 0.85rem' }}
+                              >
+                                🔒 Early Deactivate Account
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
             )}
@@ -3361,6 +3996,7 @@ const loadReimbursements = async (empId) => {
               <button onClick={() => { setAttendanceTab('salary'); computeSalary(activeEmployee.id, salaryMonth); }} style={attendanceTab === 'salary' ? sidebarLinkActiveStyle : sidebarLinkStyle}><Award size={18} /><span>Salary</span></button>
             
               <button onClick={() => { setAttendanceTab('reimbursement'); loadReimbursements(activeEmployee.id); }} style={attendanceTab === 'reimbursement' ? sidebarLinkActiveStyle : sidebarLinkStyle}><CreditCard size={18} /><span>Reimbursement</span></button>
+              <button onClick={() => { setAttendanceTab('resignation'); loadEmployeeResignation(activeEmployee.id); }} style={attendanceTab === 'resignation' ? sidebarLinkActiveStyle : sidebarLinkStyle}><UserMinus size={18} /><span>Resignation</span></button>
             </nav>
             <div style={sidebarUserStyle}>
               <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem' }}>{activeEmployee.full_name?.charAt(0)}</div>
@@ -3942,7 +4578,302 @@ const loadReimbursements = async (empId) => {
                   ) : <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>No reimbursement requests yet.</p>}
                 </div>
 
+              </div>
+            )}
+
+            {attendanceTab === 'resignation' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>Resignation & Offboarding</h2>
+                    <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', margin: '4px 0 0' }}>
+                      Submit your resignation request, track notice period countdown, and view offboarding details.
+                    </p>
                   </div>
+                  {myResignation && (
+                    <div>
+                      {myResignation.status === 'pending' && <span className="badge badge-pending">⏳ Pending HR Review</span>}
+                      {(myResignation.status === 'notice_period' || myResignation.status === 'approved') && (
+                        <span className="badge" style={{ backgroundColor: 'rgba(59,130,246,0.15)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}>
+                          📋 Notice Period Active
+                        </span>
+                      )}
+                      {myResignation.status === 'deactivated' && <span className="badge" style={{ backgroundColor: 'rgba(100,116,139,0.15)', color: '#64748b' }}>🔒 Offboarded / Deactivated</span>}
+                      {myResignation.status === 'rejected' && <span className="badge badge-danger">✗ Request Rejected</span>}
+                    </div>
+                  )}
+                </div>
+
+                {/* CASE 1: No resignation submitted yet or rejected */}
+                {(!myResignation || myResignation.status === 'rejected') && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
+                    {/* Resignation Form */}
+                    <div className="glass-card">
+                      <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--color-orange)' }}>
+                        Submit Resignation Request
+                      </h3>
+
+                      {resignationError && (
+                        <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-danger-bg)', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--color-danger)', borderRadius: '8px', fontSize: '0.8rem', marginBottom: '1rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <AlertCircle size={16} /><span>{resignationError}</span>
+                        </div>
+                      )}
+
+                      <div className="form-group">
+                        <label className="form-label">Reason for Resignation *</label>
+                        <textarea
+                          rows={4}
+                          className="form-input"
+                          placeholder="Please share the reason for your resignation (e.g. Higher studies, Better opportunity, Personal reasons, Relocation, etc.)"
+                          value={resignationForm.reason}
+                          onChange={(e) => setResignationForm({ ...resignationForm, reason: e.target.value })}
+                          required
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">Desired / Requested Last Working Day *</label>
+                        <input
+                          type="date"
+                          min={new Date().toISOString().split('T')[0]}
+                          className="form-input"
+                          value={resignationForm.requested_last_day}
+                          onChange={(e) => setResignationForm({ ...resignationForm, requested_last_day: e.target.value })}
+                          required
+                        />
+                      </div>
+
+                      <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                        <label className="form-label">Handover Notes / Feedback (Optional)</label>
+                        <textarea
+                          rows={3}
+                          className="form-input"
+                          placeholder="Any preliminary handover details, current project status, or comments for HR"
+                          value={resignationForm.notes}
+                          onChange={(e) => setResignationForm({ ...resignationForm, notes: e.target.value })}
+                        />
+                      </div>
+
+                      <button
+                        onClick={handleApplyResignation}
+                        disabled={resignationSubmitting}
+                        className="btn btn-primary"
+                        style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', padding: '0.75rem' }}
+                      >
+                        {resignationSubmitting ? 'Submitting Request...' : 'Submit Resignation Request ➔'}
+                      </button>
+                    </div>
+
+                    {/* Policy & Guidance Info */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div className="glass-card" style={{ border: '1px solid rgba(200,146,42,0.2)' }}>
+                        <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.9rem', color: 'var(--color-orange)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          📋 Resignation & Notice Process
+                        </h4>
+                        <ul style={{ margin: 0, paddingLeft: '1.2rem', color: 'var(--color-text-secondary)', fontSize: '0.85rem', lineHeight: 1.8 }}>
+                          <li><strong>HR Review:</strong> HR will review your request and assign the official notice period duration.</li>
+                          <li><strong>Normal Salary:</strong> Your salary during the notice period is calculated as normal based on your working attendance.</li>
+                          <li><strong>Asset & Work Handover:</strong> Ensure all company credentials, project files, and hardware assets are handed over.</li>
+                          <li><strong>5-Day Auto-Deactivation:</strong> Your employee portal account will automatically deactivate 5 days after your notice period ends.</li>
+                        </ul>
+                      </div>
+
+                      <div className="glass-card" style={{ backgroundColor: 'rgba(59,130,246,0.04)', border: '1px solid rgba(59,130,246,0.2)' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem' }}>
+                          <AlertCircle size={20} color="#3b82f6" style={{ flexShrink: 0, marginTop: '2px' }} />
+                          <div>
+                            <h5 style={{ margin: '0 0 0.25rem', fontSize: '0.85rem', fontWeight: 700, color: '#1e40af' }}>Need to discuss before resigning?</h5>
+                            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+                              You can always reach out directly to HR or your team lead for any guidance or confidential discussions.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* CASE 2: Pending HR Approval */}
+                {myResignation && myResignation.status === 'pending' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '750px' }}>
+                    <div className="glass-card" style={{ border: '1px solid rgba(200,146,42,0.3)', backgroundColor: 'rgba(200,146,42,0.03)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+                        <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'rgba(200,146,42,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Clock size={20} color="var(--color-orange)" />
+                        </div>
+                        <div>
+                          <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>Resignation Request Submitted</h3>
+                          <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                            Applied on {myResignation.created_at ? new Date(myResignation.created_at).toLocaleDateString('en-IN') : '—'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div style={{ padding: '1rem', backgroundColor: 'rgba(0,0,0,0.02)', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                          <div>
+                            <p style={detailLabelStyle}>Reason Submitted</p>
+                            <p style={{ ...detailValueStyle, fontWeight: 600 }}>{myResignation.reason}</p>
+                          </div>
+                          <div>
+                            <p style={detailLabelStyle}>Requested Last Day</p>
+                            <p style={detailValueStyle}>{myResignation.requested_last_day}</p>
+                          </div>
+                        </div>
+                        {myResignation.notes && (
+                          <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed var(--border-color)' }}>
+                            <p style={detailLabelStyle}>Handover Notes</p>
+                            <p style={{ margin: '3px 0 0', fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>{myResignation.notes}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ padding: '0.75rem 1rem', backgroundColor: 'rgba(59,130,246,0.06)', borderRadius: '6px', fontSize: '0.82rem', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <Clock size={16} />
+                        <span>HR is reviewing your request. Once approved, your official notice period duration and last working day will appear here.</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* CASE 3: In Notice Period */}
+                {myResignation && (myResignation.status === 'notice_period' || myResignation.status === 'approved') && (() => {
+                  const todayStr = new Date().toISOString().split('T')[0];
+                  const startD = new Date(myResignation.notice_start_date || todayStr);
+                  const endD = new Date(myResignation.notice_end_date || todayStr);
+                  const todayD = new Date(todayStr);
+                  const totalDays = Math.max(1, Math.round((endD - startD) / (1000 * 60 * 60 * 24)));
+                  const isNoticeOver = todayD > endD;
+
+                  let daysRemaining = 0;
+                  let daysElapsed = 0;
+                  let progressPercent = 0;
+                  let autoDeactDaysLeft = 5;
+
+                  if (!isNoticeOver) {
+                    daysRemaining = Math.max(0, Math.round((endD - todayD) / (1000 * 60 * 60 * 24)));
+                    daysElapsed = totalDays - daysRemaining;
+                    progressPercent = Math.min(100, Math.max(0, Math.round((daysElapsed / totalDays) * 100)));
+                  } else {
+                    const daysSinceEnd = Math.round((todayD - endD) / (1000 * 60 * 60 * 24));
+                    autoDeactDaysLeft = Math.max(0, 5 - daysSinceEnd);
+                  }
+
+                  const autoDeactDateObj = new Date(endD);
+                  autoDeactDateObj.setDate(autoDeactDateObj.getDate() + 5);
+                  const autoDeactDateStr = autoDeactDateObj.toLocaleDateString('en-IN');
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '850px' }}>
+                      {/* Notice Countdown Banner */}
+                      <div className="glass-card" style={{ border: '1px solid rgba(59,130,246,0.3)', background: 'linear-gradient(135deg, rgba(59,130,246,0.06), rgba(200,146,42,0.03))' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+                          <div>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                              Official Notice Period
+                            </span>
+                            <h2 style={{ fontSize: '1.8rem', fontWeight: 800, margin: '4px 0 0', color: isNoticeOver ? '#10b981' : '#1e3a8a' }}>
+                              {isNoticeOver ? 'Notice Period Completed ✓' : `${daysRemaining} Days Remaining`}
+                            </h2>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Notice Duration</span>
+                            <h3 style={{ margin: '2px 0 0', fontSize: '1.3rem', fontWeight: 800, color: 'var(--color-orange)' }}>
+                              {myResignation.notice_period_days} Days
+                            </h3>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div style={{ marginBottom: '1rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '4px' }}>
+                            <span>Started: {myResignation.notice_start_date}</span>
+                            <span>Last Day: {myResignation.notice_end_date}</span>
+                          </div>
+                          <div style={{ width: '100%', height: '10px', backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: '5px', overflow: 'hidden' }}>
+                            <div style={{ width: `${isNoticeOver ? 100 : progressPercent}%`, height: '100%', backgroundColor: isNoticeOver ? '#10b981' : '#3b82f6', transition: 'width 0.4s ease' }} />
+                          </div>
+                        </div>
+
+                        {/* Key Dates Grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', padding: '1rem', backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                          <div>
+                            <p style={detailLabelStyle}>Notice Start Date</p>
+                            <p style={detailValueStyle}>{myResignation.notice_start_date || '—'}</p>
+                          </div>
+                          <div>
+                            <p style={detailLabelStyle}>Official Last Working Day</p>
+                            <p style={{ ...detailValueStyle, fontWeight: 700, color: '#1e40af' }}>{myResignation.notice_end_date || '—'}</p>
+                          </div>
+                          <div>
+                            <p style={detailLabelStyle}>Account Deactivation Date</p>
+                            <p style={{ ...detailValueStyle, color: '#d97706', fontWeight: 700 }}>{autoDeactDateStr}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Notice Over Grace Warning */}
+                      {isNoticeOver && (
+                        <div style={{ padding: '1rem 1.25rem', backgroundColor: 'rgba(245,158,11,0.1)', borderRadius: '10px', border: '1px solid rgba(245,158,11,0.3)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <AlertCircle size={22} color="#d97706" style={{ flexShrink: 0 }} />
+                          <div>
+                            <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#92400e' }}>
+                              Notice period ended on {myResignation.notice_end_date}
+                            </p>
+                            <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#b45309' }}>
+                              Your account is in the 5-day grace period and will automatically deactivate in <strong>{autoDeactDaysLeft} day(s)</strong>.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Salary & Payout Info Card */}
+                      <div className="glass-card" style={{ border: '1px solid rgba(200,146,42,0.2)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <Award size={18} color="var(--color-orange)" />
+                            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>Notice Period Salary</h4>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setAttendanceTab('salary');
+                              computeSalary(activeEmployee.id, salaryMonth);
+                            }}
+                            className="btn btn-secondary"
+                            style={{ fontSize: '0.78rem', padding: '0.35rem 0.8rem' }}
+                          >
+                            Open Salary View ➔
+                          </button>
+                        </div>
+                        <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
+                          Your compensation during the notice period is calculated as normal based on your monthly CTC, regular working days, and marked daily attendance. Any excess leave taken will be deducted accordingly as per company policy.
+                        </p>
+                      </div>
+
+                      {/* HR Note */}
+                      {myResignation.hr_note && (
+                        <div className="glass-card">
+                          <p style={detailLabelStyle}>HR Instructions / Notes</p>
+                          <p style={{ margin: '4px 0 0', fontSize: '0.88rem', color: 'var(--color-text-primary)' }}>{myResignation.hr_note}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* CASE 4: Deactivated */}
+                {myResignation && myResignation.status === 'deactivated' && (
+                  <div className="glass-card" style={{ textAlign: 'center', padding: '3rem 1.5rem', maxWidth: '600px', margin: '0 auto' }}>
+                    <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: 'rgba(100,116,139,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
+                      <UserMinus size={28} color="#64748b" />
+                    </div>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '0.5rem' }}>Offboarding Complete</h3>
+                    <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.88rem', margin: '0 0 1rem', lineHeight: 1.6 }}>
+                      Your notice period has completed and your account has been deactivated. Thank you for your service and contributions at TOSBS!
+                    </p>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
