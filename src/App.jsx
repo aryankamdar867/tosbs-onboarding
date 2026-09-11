@@ -39,11 +39,25 @@ const getTodaysFestivals = () => {
   const dd = String(today.getDate()).padStart(2, '0');
   return FESTIVALS.filter(f => f.month === mm && f.day === dd);
 };
+
+const getAnnouncementDates = (ann) => {
+  if (!ann) return { startDate: '', endDate: '', cleanMessage: '' };
+  let startDate = ann.scheduled_date || ann.start_date || (ann.created_at ? ann.created_at.split('T')[0] : '');
+  let endDate = ann.end_date || '';
+  let rawMsg = ann.message || '';
+  if (!endDate && rawMsg.includes('<!--END_DATE:')) {
+    const match = rawMsg.match(/<!--END_DATE:(.*?)-->/);
+    if (match) endDate = match[1];
+  }
+  const cleanMessage = rawMsg.replace(/<!--END_DATE:.*?-->/g, '').trim();
+  return { startDate, endDate, cleanMessage };
+};
+
 function App() {
   const [currentView, setCurrentView] = useState('splash');
   const [inviteToken, setInviteToken] = useState('');
-   const [showAnnouncement, setShowAnnouncement] = useState(false);
-  const [announcementForm, setAnnouncementForm] = useState({ title: '', message: '', scheduled_date: '', image_url: '' });
+  const [showAnnouncement, setShowAnnouncement] = useState(false);
+  const [announcementForm, setAnnouncementForm] = useState({ title: '', message: '', start_date: '', end_date: '', scheduled_date: '', image_url: '' });
   const [announcementImageFile, setAnnouncementImageFile] = useState(null);
   const [showAnnouncementPopup, setShowAnnouncementPopup] = useState(false);
   const [currentPopupAnnouncement, setCurrentPopupAnnouncement] = useState(null); 
@@ -1052,22 +1066,46 @@ console.log('Office coords are:', OFFICE_LAT, OFFICE_LNG);
     if (!announcementForm.title.trim()) { alert('Please enter a title.'); return; }
     try {
       const today = new Date().toISOString().split('T')[0];
-      const scheduledDate = announcementForm.scheduled_date || today;
-      await supabase.from('notifications').insert({
+      const startDate = announcementForm.start_date || announcementForm.scheduled_date || today;
+      const endDate = announcementForm.end_date || null;
+
+      if (endDate && endDate < startDate) {
+        alert('End date cannot be before start date.');
+        return;
+      }
+
+      const rawMessage = announcementForm.message || '';
+      const messageWithEndDate = endDate ? `${rawMessage}\n<!--END_DATE:${endDate}-->` : rawMessage;
+
+      const payload = {
         employee_id: null,
-        title: announcementForm.title,
-        message: announcementForm.message,
-        scheduled_date: scheduledDate,
+        title: announcementForm.title.trim(),
+        message: messageWithEndDate,
+        scheduled_date: startDate,
         image_url: announcementForm.image_url || null,
         is_announcement: true,
         created_at: new Date().toISOString(),
-      });
-      setAnnouncementForm({ title: '', message: '', scheduled_date: '', image_url: '' });
+      };
+
+      // Try inserting with end_date column first, fallback to message-encoded if column does not exist
+      try {
+        const { error: errWithCol } = await supabase.from('notifications').insert({ ...payload, end_date: endDate });
+        if (errWithCol) {
+          await supabase.from('notifications').insert(payload);
+        }
+      } catch (e) {
+        await supabase.from('notifications').insert(payload);
+      }
+
+      setAnnouncementForm({ title: '', message: '', start_date: '', end_date: '', scheduled_date: '', image_url: '' });
       setAnnouncementImageFile(null);
       setShowAnnouncement(false);
       loadHrCelebrations();
-      alert(scheduledDate === today ? 'Announcement sent!' : `Scheduled for ${scheduledDate}!`);
-    } catch (err) { console.error(err); }
+      alert(startDate > today ? `Announcement scheduled from ${startDate}${endDate ? ` to ${endDate}` : ''}!` : `Announcement published${endDate ? ` (active until ${endDate})` : ''}!`);
+    } catch (err) {
+      console.error('Error sending announcement:', err);
+      alert('Failed to send announcement.');
+    }
   };
 
   const deleteAnnouncement = async (id) => {
@@ -1610,8 +1648,14 @@ console.log('Office coords are:', OFFICE_LAT, OFFICE_LNG);
         .limit(20);
       setNotifications(notifs || []);
 
-      // Show popup for latest unseen announcement
-      const latestAnnouncement = (notifs || []).find(n => n.is_announcement && (!n.scheduled_date || n.scheduled_date <= todayISO));
+      // Show popup for latest unseen active announcement
+      const latestAnnouncement = (notifs || []).find(n => {
+        if (!n.is_announcement) return false;
+        const { startDate, endDate } = getAnnouncementDates(n);
+        if (startDate && startDate > todayISO) return false;
+        if (endDate && endDate < todayISO) return false;
+        return true;
+      });
       if (latestAnnouncement) {
         const seenKey = `seen_ann_${latestAnnouncement.id}`;
         if (!sessionStorage.getItem(seenKey)) {
@@ -2335,32 +2379,38 @@ const loadReimbursements = async (empId) => {
 
   return (
     <div className="app-container">
-      {showAnnouncementPopup && currentPopupAnnouncement && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', animation: 'fadeIn 0.3s ease' }}>
-          <div style={{ backgroundColor: '#0f1f3d', border: '2px solid rgba(200,146,42,0.4)', borderRadius: '20px', maxWidth: '520px', width: '100%', overflow: 'hidden', boxShadow: '0 25px 60px rgba(0,0,0,0.6)', animation: 'slideUp 0.4s cubic-bezier(0.34,1.56,0.64,1)' }}>
-            <div style={{ background: 'linear-gradient(135deg, #1a2d4a, #0f1f3d)', padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(200,146,42,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div style={{ width: '42px', height: '42px', borderRadius: '10px', background: 'linear-gradient(135deg, #c8922a, #e0a832)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem', animation: 'pulse 2s ease infinite' }}>📢</div>
-                <div>
-                  <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--color-orange)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>TOSBS Announcement</p>
-                  <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>{new Date(currentPopupAnnouncement.scheduled_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+      {showAnnouncementPopup && currentPopupAnnouncement && (() => {
+        const { startDate, endDate, cleanMessage } = getAnnouncementDates(currentPopupAnnouncement);
+        return (
+          <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', animation: 'fadeIn 0.3s ease' }}>
+            <div style={{ backgroundColor: '#0f1f3d', border: '2px solid rgba(200,146,42,0.4)', borderRadius: '20px', maxWidth: '520px', width: '100%', overflow: 'hidden', boxShadow: '0 25px 60px rgba(0,0,0,0.6)', animation: 'slideUp 0.4s cubic-bezier(0.34,1.56,0.64,1)' }}>
+              <div style={{ background: 'linear-gradient(135deg, #1a2d4a, #0f1f3d)', padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(200,146,42,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ width: '42px', height: '42px', borderRadius: '10px', background: 'linear-gradient(135deg, #c8922a, #e0a832)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem', animation: 'pulse 2s ease infinite' }}>📢</div>
+                  <div>
+                    <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--color-orange)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>TOSBS Announcement</p>
+                    <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                      {startDate ? new Date(startDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+                      {endDate ? ` → ${new Date(endDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}
+                    </p>
+                  </div>
                 </div>
+                <button onClick={() => setShowAnnouncementPopup(false)} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '1.5rem', lineHeight: 1 }}>×</button>
               </div>
-              <button onClick={() => setShowAnnouncementPopup(false)} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '1.5rem', lineHeight: 1 }}>×</button>
-            </div>
-            {currentPopupAnnouncement.image_url && (
-              <img src={currentPopupAnnouncement.image_url} alt="Announcement" style={{ width: '100%', maxHeight: '220px', objectFit: 'cover', display: 'block' }} />
-            )}
-            <div style={{ padding: '1.5rem' }}>
-              <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#fff', marginBottom: '0.75rem', lineHeight: 1.3 }}>{currentPopupAnnouncement.title}</h2>
-              {currentPopupAnnouncement.message && <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', lineHeight: 1.7, margin: 0 }}>{currentPopupAnnouncement.message}</p>}
-            </div>
-            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid rgba(200,146,42,0.1)', display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowAnnouncementPopup(false)} className="btn btn-primary" style={{ padding: '0.6rem 1.5rem' }}>Got it 👍</button>
+              {currentPopupAnnouncement.image_url && (
+                <img src={currentPopupAnnouncement.image_url} alt="Announcement" style={{ width: '100%', maxHeight: '220px', objectFit: 'cover', display: 'block' }} />
+              )}
+              <div style={{ padding: '1.5rem' }}>
+                <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#fff', marginBottom: '0.75rem', lineHeight: 1.3 }}>{currentPopupAnnouncement.title}</h2>
+                {cleanMessage && <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', lineHeight: 1.7, margin: 0 }}>{cleanMessage}</p>}
+              </div>
+              <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid rgba(200,146,42,0.1)', display: 'flex', justifyContent: 'flex-end' }}>
+                <button onClick={() => setShowAnnouncementPopup(false)} className="btn btn-primary" style={{ padding: '0.6rem 1.5rem' }}>Got it 👍</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       {/* VIEW 1: SPLASH — employee-first, HR access is a small manual link only */}
       {currentView === 'splash' && (
         <div style={splashContainerStyle}>
@@ -2508,19 +2558,23 @@ const loadReimbursements = async (empId) => {
                     {/* Create */}
                     <div style={{ padding: '1.25rem', backgroundColor: 'rgba(200,146,42,0.05)', borderRadius: '12px', border: '1px solid rgba(200,146,42,0.15)', marginBottom: '1.5rem' }}>
                       <h3 style={{ fontSize: '0.85rem', color: 'var(--color-orange)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem' }}>New Announcement</h3>
+                      <div className="form-group">
+                        <label className="form-label">Title *</label>
+                        <input type="text" placeholder="e.g. Office closed on Diwali" value={announcementForm.title} onChange={(e) => setAnnouncementForm({...announcementForm, title: e.target.value})} className="form-input" />
+                      </div>
                       <div className="form-row">
                         <div className="form-group">
-                          <label className="form-label">Title *</label>
-                          <input type="text" placeholder="e.g. Office closed on Diwali" value={announcementForm.title} onChange={(e) => setAnnouncementForm({...announcementForm, title: e.target.value})} className="form-input" />
+                          <label className="form-label">Start Date (blank = today)</label>
+                          <input type="date" value={announcementForm.start_date || announcementForm.scheduled_date} onChange={(e) => setAnnouncementForm({...announcementForm, start_date: e.target.value, scheduled_date: e.target.value})} className="form-input" />
                         </div>
                         <div className="form-group">
-                          <label className="form-label">Schedule Date (blank = today)</label>
-                          <input type="date" value={announcementForm.scheduled_date} onChange={(e) => setAnnouncementForm({...announcementForm, scheduled_date: e.target.value})} className="form-input" min={new Date().toISOString().split('T')[0]} />
+                          <label className="form-label">End Date (optional / until when active)</label>
+                          <input type="date" value={announcementForm.end_date} onChange={(e) => setAnnouncementForm({...announcementForm, end_date: e.target.value})} className="form-input" min={announcementForm.start_date || announcementForm.scheduled_date || new Date().toISOString().split('T')[0]} />
                         </div>
                       </div>
                       <div className="form-group">
                         <label className="form-label">Message</label>
-                        <textarea placeholder="Write your announcement..." value={announcementForm.message} onChange={(e) => setAnnouncementForm({...announcementForm, message: e.target.value})} className="form-input" style={{ minHeight: '90px', resize: 'vertical' }} />
+                        <textarea placeholder="Write your announcement message..." value={announcementForm.message} onChange={(e) => setAnnouncementForm({...announcementForm, message: e.target.value})} className="form-input" style={{ minHeight: '90px', resize: 'vertical' }} />
                       </div>
                       <div className="form-group">
                         <label className="form-label">Attach Image (optional)</label>
@@ -2529,7 +2583,7 @@ const loadReimbursements = async (empId) => {
                         {announcementForm.image_url && <img src={announcementForm.image_url} alt="Preview" style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', borderRadius: '8px', marginTop: '0.5rem' }} />}
                       </div>
                       <button onClick={sendAnnouncement} className="btn btn-primary">
-                        {announcementForm.scheduled_date && announcementForm.scheduled_date > new Date().toISOString().split('T')[0] ? '📅 Schedule' : '📢 Send Now'}
+                        {(announcementForm.start_date || announcementForm.scheduled_date) && (announcementForm.start_date || announcementForm.scheduled_date) > new Date().toISOString().split('T')[0] ? '📅 Schedule Announcement' : '📢 Publish Announcement'}
                       </button>
                     </div>
 
@@ -2537,21 +2591,37 @@ const loadReimbursements = async (empId) => {
                     <h3 style={{ fontSize: '0.85rem', color: 'var(--color-orange)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem' }}>All Announcements</h3>
                     {notifications.filter(n => n.is_announcement).length === 0
                       ? <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>No announcements yet.</p>
-                      : notifications.filter(n => n.is_announcement).map((ann, i) => (
-                        <div key={i} style={{ padding: '1rem', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--border-color)', display: 'flex', gap: '1rem', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
-                          {ann.image_url && <img src={ann.image_url} alt="" style={{ width: '70px', height: '70px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />}
-                          <div style={{ flexGrow: 1 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <p style={{ margin: 0, fontWeight: 700, fontSize: '0.92rem' }}>{ann.title}</p>
-                              <button onClick={() => deleteAnnouncement(ann.id)} className="btn btn-danger" style={{ padding: '3px 7px', fontSize: '0.72rem' }}>Delete</button>
+                      : notifications.filter(n => n.is_announcement).map((ann, i) => {
+                        const { startDate, endDate, cleanMessage } = getAnnouncementDates(ann);
+                        const todayStr = new Date().toISOString().split('T')[0];
+                        const isFuture = startDate && startDate > todayStr;
+                        const isExpired = endDate && endDate < todayStr;
+                        const isActive = !isFuture && !isExpired;
+
+                        return (
+                          <div key={i} style={{ padding: '1rem', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: `1px solid ${isActive ? 'rgba(200,146,42,0.3)' : isFuture ? 'rgba(59,130,246,0.3)' : 'rgba(100,116,139,0.2)'}`, display: 'flex', gap: '1rem', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                            {ann.image_url && <img src={ann.image_url} alt="" style={{ width: '70px', height: '70px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />}
+                            <div style={{ flexGrow: 1 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                                <div>
+                                  <p style={{ margin: 0, fontWeight: 700, fontSize: '0.92rem' }}>{ann.title}</p>
+                                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '3px', flexWrap: 'wrap' }}>
+                                    <span className={`badge ${isActive ? 'badge-success' : isFuture ? 'badge-pending' : ''}`} style={!isActive && !isFuture ? { backgroundColor: 'rgba(100,116,139,0.15)', color: '#64748b' } : {}}>
+                                      {isActive ? '● Active / Live' : isFuture ? '📅 Scheduled' : '⌛ Expired'}
+                                    </span>
+                                    <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                                      {startDate ? new Date(startDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+                                      {endDate ? ` → ${new Date(endDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : ' (No expiry)'}
+                                    </span>
+                                  </div>
+                                </div>
+                                <button onClick={() => deleteAnnouncement(ann.id)} className="btn btn-danger" style={{ padding: '3px 7px', fontSize: '0.72rem' }}>Delete</button>
+                              </div>
+                              {cleanMessage && <p style={{ margin: '6px 0 0', fontSize: '0.82rem', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>{cleanMessage}</p>}
                             </div>
-                            <p style={{ margin: '2px 0 4px', fontSize: '0.72rem', color: ann.scheduled_date > new Date().toISOString().split('T')[0] ? 'var(--color-pending)' : 'var(--color-orange)' }}>
-                              {ann.scheduled_date > new Date().toISOString().split('T')[0] ? `📅 Scheduled: ${ann.scheduled_date}` : `📢 ${ann.scheduled_date}`}
-                            </p>
-                            {ann.message && <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--color-text-secondary)' }}>{ann.message}</p>}
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     }
                   </div>
                 </div>
@@ -4073,13 +4143,28 @@ const loadReimbursements = async (empId) => {
                               <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--color-orange)', fontWeight: 600 }}>{w.message}</p>
                             </div>
                           ))}
-                          {notifications.map((n, i) => (
-                            <div key={`notif-${i}`} style={announcementCardStyle}>
-                              <p style={{ margin: 0, fontWeight: 700, fontSize: '0.85rem' }}>{n.title}</p>
-                              {n.message && <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>{n.message}</p>}
-                              <p style={{ margin: '6px 0 0', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{new Date(n.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</p>
-                            </div>
-                          ))}
+                          {notifications
+                            .filter(n => {
+                              if (!n.is_announcement) return true;
+                              const { startDate, endDate } = getAnnouncementDates(n);
+                              const todayStr = new Date().toISOString().split('T')[0];
+                              if (startDate && startDate > todayStr) return false;
+                              if (endDate && endDate < todayStr) return false;
+                              return true;
+                            })
+                            .map((n, i) => {
+                              const { startDate, endDate, cleanMessage } = getAnnouncementDates(n);
+                              return (
+                                <div key={`notif-${i}`} style={announcementCardStyle}>
+                                  <p style={{ margin: 0, fontWeight: 700, fontSize: '0.85rem' }}>{n.title}</p>
+                                  {cleanMessage && <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>{cleanMessage}</p>}
+                                  <p style={{ margin: '6px 0 0', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                                    {n.is_announcement && startDate ? `${new Date(startDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}${endDate ? ` – ${new Date(endDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}` : ''}` : new Date(n.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                  </p>
+                                </div>
+                              );
+                            })
+                          }
                         </>
                       )}
                     </div>
@@ -4151,19 +4236,37 @@ const loadReimbursements = async (empId) => {
                         </div>
                       ))}
 
-                                          {notifications.filter(n => n.is_announcement && n.scheduled_date <= new Date().toISOString().split('T')[0]).map((ann, i) => (
-                        <div key={`ann-${i}`} style={{ borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(200,146,42,0.25)', animation: `slideUp 0.${i+3}s ease both`, marginBottom: '0.75rem' }}>
-                          {ann.image_url && <img src={ann.image_url} alt={ann.title} style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', display: 'block' }} />}
-                          <div style={{ padding: '0.85rem 1rem', backgroundColor: 'rgba(200,146,42,0.06)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.3rem' }}>
-                              <span style={{ fontSize: '1rem', animation: 'pulse 2s infinite' }}>📢</span>
-                              <p style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem', color: '#fff' }}>{ann.title}</p>
+                      {notifications
+                        .filter(n => {
+                          if (!n.is_announcement) return false;
+                          const { startDate, endDate } = getAnnouncementDates(n);
+                          const todayStr = new Date().toISOString().split('T')[0];
+                          if (startDate && startDate > todayStr) return false;
+                          if (endDate && endDate < todayStr) return false;
+                          return true;
+                        })
+                        .map((ann, i) => {
+                          const { startDate, endDate, cleanMessage } = getAnnouncementDates(ann);
+                          return (
+                            <div key={`ann-${i}`} style={{ borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(200,146,42,0.25)', animation: `slideUp 0.${i+3}s ease both`, marginBottom: '0.75rem' }}>
+                              {ann.image_url && <img src={ann.image_url} alt={ann.title} style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', display: 'block' }} />}
+                              <div style={{ padding: '0.85rem 1rem', backgroundColor: 'rgba(200,146,42,0.06)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.3rem' }}>
+                                  <span style={{ fontSize: '1rem', animation: 'pulse 2s infinite' }}>📢</span>
+                                  <p style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem', color: '#fff' }}>{ann.title}</p>
+                                </div>
+                                {cleanMessage && <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>{cleanMessage}</p>}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+                                  <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--color-orange)' }}>
+                                    {startDate ? new Date(startDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : ''}
+                                    {endDate ? ` – ${new Date(endDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}` : ''}
+                                  </p>
+                                </div>
+                              </div>
                             </div>
-                            {ann.message && <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>{ann.message}</p>}
-                            <p style={{ margin: '4px 0 0', fontSize: '0.7rem', color: 'var(--color-orange)' }}>{new Date(ann.scheduled_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</p>
-                          </div>
-                        </div>
-                      ))}
+                          );
+                        })
+                      }
                       {notifications.filter(n => !n.is_announcement).map((n, i) => (
                         <div key={`ov-notif-${i}`} className="notif-card" style={{ padding: '0.9rem', borderRadius: '10px', backgroundColor: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', animationDelay: `${(celebrations.length + wishesReceived.length + i) * 0.06}s` }}>
                           <p style={{ margin: 0, fontWeight: 700, fontSize: '0.87rem' }}>{n.title}</p>
