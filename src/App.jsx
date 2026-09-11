@@ -2127,9 +2127,32 @@ const loadReimbursements = async (empId) => {
   };
 
   const getStatusBadge = (status) => {
-    const map = { invited: 'badge-info', registered: 'badge-info', details_filled: 'badge-pending', digilocker_verified: 'badge-pending', approved: 'badge-success' };
-    const labels = { invited: 'Invited', registered: 'Registered', details_filled: 'Details Filled', digilocker_verified: 'DigiLocker Verified', approved: 'Completed' };
-    return <span className={`badge ${map[status] || 'badge-info'}`}>{labels[status] || status}</span>;
+    const map = {
+      invited: 'badge-info',
+      registered: 'badge-info',
+      details_filled: 'badge-pending',
+      digilocker_verified: 'badge-pending',
+      approved: 'badge-success',
+      inactive: 'badge-danger',
+      resigned: 'badge-danger',
+    };
+    const labels = {
+      invited: 'Invited',
+      registered: 'Registered',
+      details_filled: 'Details Filled',
+      digilocker_verified: 'DigiLocker Verified',
+      approved: 'Completed',
+      inactive: 'Inactive',
+      resigned: 'Resigned',
+    };
+    return (
+      <span
+        className={`badge ${map[status] || 'badge-info'}`}
+        style={status === 'inactive' || status === 'resigned' ? { backgroundColor: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' } : {}}
+      >
+        {labels[status] || status}
+      </span>
+    );
   };
 
   const filteredEmployees = employees.filter(emp =>
@@ -2819,8 +2842,8 @@ const loadReimbursements = async (empId) => {
                 <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
                   <input type="date" value={hrAttendanceDate} onChange={(e) => setHrAttendanceDate(e.target.value)} className="form-input" style={{ maxWidth: '180px' }} />
                   <select value={hrAttendanceEmployee} onChange={(e) => setHrAttendanceEmployee(e.target.value)} className="form-select" style={{ maxWidth: '220px' }}>
-                    <option value="all">All Employees</option>
-                    {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+                    <option value="all">All Active Employees</option>
+                    {employees.filter(e => e.status !== 'inactive' && e.status !== 'resigned').map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
                   </select>
                   <button onClick={loadHrAttendance} className="btn btn-primary">Load Attendance</button>
                   <button onClick={exportAttendanceMasterSheet} className="btn btn-secondary"><FileText size={16} /> Download Master Sheet</button>
@@ -2835,9 +2858,9 @@ const loadReimbursements = async (empId) => {
                       <div className="form-row">
                         <div className="form-group">
                           <label className="form-label">Employee</label>
-                                            <select className="form-select" value={hrSalaryEmployee} onChange={(e) => { setHrSalaryEmployee(e.target.value); setSalaryBreakdown(null); if (e.target.value) computeSalary(e.target.value, salaryMonth); }} style={{ maxWidth: '260px' }}>
+                          <select className="form-select" value={manualAttendance.employeeId} onChange={(e) => setManualAttendance({ ...manualAttendance, employeeId: e.target.value })} style={{ maxWidth: '260px' }}>
                             <option value="">Select employee...</option>
-                            {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+                            {employees.filter(e => e.status !== 'inactive' && e.status !== 'resigned').map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
                           </select>
                         </div>
                         <div className="form-group">
