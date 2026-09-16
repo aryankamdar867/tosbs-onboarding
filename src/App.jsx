@@ -947,19 +947,33 @@ const handleHrLogin = (e) => {
     setAttendanceError('');
     setShowWfhOption(false);
 
-    const OFFICE_LAT = parseFloat(import.meta.env.VITE_OFFICE_LAT);
-    const OFFICE_LNG = parseFloat(import.meta.env.VITE_OFFICE_LNG);
-    const OFFICE_RADIUS = parseInt(import.meta.env.VITE_OFFICE_RADIUS_M || '300');
+    const OFFICE_LAT = parseFloat(import.meta.env.VITE_OFFICE_LAT || '18.4988');
+    const OFFICE_LNG = parseFloat(import.meta.env.VITE_OFFICE_LNG || '73.8519');
+    const OFFICE_RADIUS = parseInt(import.meta.env.VITE_OFFICE_RADIUS_M || '150');
 
     try {
-      const position = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 }));
+      const position = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }));
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
-      console.log('Browser reports you at:', lat, lng, '(accuracy: ±' + Math.round(position.coords.accuracy) + 'm)');
-console.log('Office coords are:', OFFICE_LAT, OFFICE_LNG);
+      const accuracy = Math.round(position.coords.accuracy || 0);
+      console.log(`Browser reports at: (${lat}, ${lng}), accuracy: ±${accuracy}m`);
+      console.log(`Office coords: (${OFFICE_LAT}, ${OFFICE_LNG}), geofence radius: ${OFFICE_RADIUS}m`);
+
+      if (isNaN(lat) || isNaN(lng) || isNaN(OFFICE_LAT) || isNaN(OFFICE_LNG)) {
+        throw new Error('Invalid GPS coordinates received.');
+      }
+
       const dist = Math.round(haversineDistance({ lat: OFFICE_LAT, lng: OFFICE_LNG }, { lat, lng }));
       const now = new Date().toISOString();
       const today = new Date().toISOString().split('T')[0];
+
+      if (isNaN(dist)) {
+        throw new Error('Could not calculate distance to office.');
+      }
 
       if (dist > OFFICE_RADIUS && !forceWfh) {
         setWfhPendingData({ lat, lng, dist, now, today, type });
@@ -4389,10 +4403,18 @@ const loadReimbursements = async (empId) => {
                   <h3 style={{ fontSize: '1rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>Today — {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</h3>
                   {todayAttendance ? (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-                      <div style={{ padding: '1rem', backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: '10px', border: '1px solid rgba(16,185,129,0.2)' }}>
-                        <p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', color: 'var(--color-success)', fontWeight: 700, textTransform: 'uppercase' }}>✓ Checked In</p>
+                      <div style={{ padding: '1rem', backgroundColor: todayAttendance.work_type === 'wfh' ? 'rgba(245,158,11,0.08)' : 'rgba(16,185,129,0.08)', borderRadius: '10px', border: `1px solid ${todayAttendance.work_type === 'wfh' ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.2)'}` }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                          <p style={{ margin: 0, fontSize: '0.72rem', color: todayAttendance.work_type === 'wfh' ? 'var(--color-pending)' : 'var(--color-success)', fontWeight: 700, textTransform: 'uppercase' }}>
+                            {todayAttendance.work_type === 'wfh' ? '🏠 Checked In (WFH)' : '🏢 Checked In (Office)'}
+                          </p>
+                          <span className={`badge ${todayAttendance.work_type === 'wfh' ? 'badge-pending' : 'badge-success'}`} style={{ fontSize: '0.7rem' }}>
+                            {todayAttendance.work_type === 'wfh' ? 'WFH' : 'In Office'}
+                          </span>
+                        </div>
                         <p style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-text-primary)' }}>{new Date(todayAttendance.check_in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
                         <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{todayAttendance.check_in_distance_m}m from office</p>
+                        {todayAttendance.wfh_reason && <p style={{ margin: '4px 0 0', fontSize: '0.73rem', color: 'var(--color-pending)' }}>Reason: {todayAttendance.wfh_reason}</p>}
                         {todayAttendance.check_in_photo && <img src={todayAttendance.check_in_photo} alt="In" style={{ width: '60px', height: '60px', borderRadius: '8px', objectFit: 'cover', marginTop: '0.75rem', transform: 'scaleX(-1)' }} />}
                       </div>
                       <div style={{ padding: '1rem', backgroundColor: todayAttendance.check_out_time ? 'rgba(59,130,246,0.08)' : 'rgba(0,0,0,0.025)', borderRadius: '10px', border: `1px solid ${todayAttendance.check_out_time ? 'rgba(59,130,246,0.2)' : 'var(--border-color)'}` }}>
