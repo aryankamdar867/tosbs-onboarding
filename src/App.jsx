@@ -3,13 +3,15 @@ import * as XLSX from "xlsx";
 import supabase from './lib/supabaseClient';
 import LineChart from './components/LineChart';
 import DigiLockerModal from './components/DigiLockerModal';
+import OfferLetterModal from './components/OfferLetterModal';
+import OfferLetterDocument from './components/OfferLetterDocument';
 import { saveAs } from "file-saver";
 import {
   Users, UserCheck, ShieldAlert, Award,
   Plus, Search, Copy, Check, X, Clock, Eye, Trash2,
   LogOut, LayoutDashboard, FileText, CheckCircle2,
   Lock, ArrowRight, MapPin, Building, CreditCard, Bell, CalendarDays, Gift,
-  UserMinus, AlertCircle, Calendar
+  UserMinus, AlertCircle, Calendar, FileCheck, Printer, Download
 } from 'lucide-react';
 // Festival calendar — auto-checked against today's date, no manual entry needed.
 // Fixed-date festivals repeat every year. Movable ones (Holi, Eid, Diwali, etc.)
@@ -139,6 +141,15 @@ function App() {
   const [hrSearchQuery, setHrSearchQuery] = useState('');
   const [hrActiveTab, setHrActiveTab] = useState('analytics');
 
+  // Offer Letter State
+  const [isOfferLetterModalOpen, setIsOfferLetterModalOpen] = useState(false);
+  const [selectedOfferLetterEmployee, setSelectedOfferLetterEmployee] = useState(null);
+  const [selectedOfferLetterData, setSelectedOfferLetterData] = useState(null);
+  const [isOfferLetterHrMode, setIsOfferLetterHrMode] = useState(false);
+  const [offerLettersMap, setOfferLettersMap] = useState({});
+  const [myOfferLetter, setMyOfferLetter] = useState(null);
+  const [offerLetterSearch, setOfferLetterSearch] = useState('');
+
   // Attendance state
   const [attendanceTab, setAttendanceTab] = useState('overview');
   const [showWfhOption, setShowWfhOption] = useState(false);
@@ -267,7 +278,7 @@ function App() {
     } catch (err) { console.error('Error loading employees:', err); }
   };
 
-  useEffect(() => { if (hrUser) loadEmployees(); }, [hrUser]);
+  useEffect(() => { if (hrUser) { loadEmployees(); loadAllOfferLetters(); } }, [hrUser]);
 
   const validateInviteToken = async (tokenInput) => {
     if (!tokenInput) return;
@@ -2179,6 +2190,146 @@ const loadReimbursements = async (empId) => {
       XLSX.writeFile(wb, `TOSBS_Resignations_${new Date().toISOString().split('T')[0]}.xlsx`);
     } catch (err) { console.error(err); alert('Export failed.'); }
   };
+  
+  const loadAllOfferLetters = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('employee_documents')
+        .select('*')
+        .eq('document_type', 'offer_letter');
+      if (error) throw error;
+      const map = {};
+      (data || []).forEach(doc => {
+        try {
+          map[doc.employee_id] = {
+            id: doc.id,
+            data: typeof doc.file_url === 'string' && doc.file_url.startsWith('{') ? JSON.parse(doc.file_url) : null,
+            created_at: doc.created_at
+          };
+        } catch (e) {
+          console.error("Error parsing offer letter payload:", e);
+        }
+      });
+      setOfferLettersMap(map);
+    } catch (err) {
+      console.error('Error loading offer letters:', err);
+    }
+  };
+
+  const loadEmployeeOfferLetter = async (empId) => {
+    if (!empId) return;
+    try {
+      const { data, error } = await supabase
+        .from('employee_documents')
+        .select('*')
+        .eq('employee_id', empId)
+        .eq('document_type', 'offer_letter')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      if (data) {
+        try {
+          const parsed = typeof data.file_url === 'string' && data.file_url.startsWith('{') ? JSON.parse(data.file_url) : null;
+          setMyOfferLetter({
+            id: data.id,
+            data: parsed,
+            created_at: data.created_at
+          });
+        } catch (e) {
+          setMyOfferLetter(null);
+        }
+      } else {
+        setMyOfferLetter(null);
+      }
+    } catch (err) {
+      console.error('Error loading employee offer letter:', err);
+      setMyOfferLetter(null);
+    }
+  };
+
+  const openHrOfferLetterModal = async (emp) => {
+    setSelectedOfferLetterEmployee(emp);
+    setIsOfferLetterHrMode(true);
+    const existing = offerLettersMap[emp.id];
+    if (existing && existing.data) {
+      setSelectedOfferLetterData(existing.data);
+    } else {
+      let details = null;
+      try {
+        const { data } = await supabase.from('employee_details').select('*').eq('employee_id', emp.id).maybeSingle();
+        details = data;
+      } catch (e) {}
+
+      // Auto compute initial CTC from salary_config if present
+      let ctc = 300000;
+      try {
+        const { data: sCfg } = await supabase.from('salary_config').select('monthly_ctc').eq('employee_id', emp.id).maybeSingle();
+        if (sCfg && sCfg.monthly_ctc) {
+          ctc = sCfg.monthly_ctc * 12;
+        }
+      } catch (e) {}
+
+      setSelectedOfferLetterData({
+        candidateName: emp.full_name || '',
+        candidateCode: emp.short_code || ('TOSBS-' + (emp.id ? emp.id.slice(0, 4).toUpperCase() : '001')),
+        designation: emp.position || emp.designation || 'Associate',
+        department: emp.department || 'Operations',
+        workLocation: details?.current_address || 'Gurugram, Haryana',
+        reportingManager: 'Amar Talwar',
+        joiningDate: details?.date_of_joining || new Date().toISOString().split('T')[0],
+        employmentType: 'Full-Time',
+        annualCtc: ctc,
+        signatoryName: 'Amar Talwar',
+        signatoryDesignation: 'Director / Authorized Signatory',
+        companyName: 'TOSBS Private Limited',
+        companyAddress: 'Plot No. 42, Sector 18, Gurugram, Haryana - 122002',
+      });
+    }
+    setIsOfferLetterModalOpen(true);
+  };
+
+  const handleSaveOfferLetter = async (savedData) => {
+    if (!selectedOfferLetterEmployee) return;
+    try {
+      const { data: existingDocs } = await supabase
+        .from('employee_documents')
+        .select('id')
+        .eq('employee_id', selectedOfferLetterEmployee.id)
+        .eq('document_type', 'offer_letter');
+
+      if (existingDocs && existingDocs.length > 0) {
+        const { error } = await supabase
+          .from('employee_documents')
+          .update({
+            file_url: JSON.stringify(savedData),
+            document_name: 'Offer_Letter_' + (savedData.candidateCode || 'TOSBS') + '.json',
+            status: 'verified',
+            verification_source: 'hr_generated',
+            created_at: new Date().toISOString()
+          })
+          .eq('id', existingDocs[0].id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('employee_documents')
+          .insert({
+            employee_id: selectedOfferLetterEmployee.id,
+            document_type: 'offer_letter',
+            document_name: 'Offer_Letter_' + (savedData.candidateCode || 'TOSBS') + '.json',
+            file_url: JSON.stringify(savedData),
+            status: 'verified',
+            verification_source: 'hr_generated'
+          });
+        if (error) throw error;
+      }
+      await loadAllOfferLetters();
+    } catch (err) {
+      console.error('Error saving offer letter:', err);
+      throw err;
+    }
+  };
+
   const handleDigiLockerSuccess = (verifiedData) => setDigiLockerDetails(verifiedData);
 
   const handleWizardSubmit = async () => {
@@ -2780,7 +2931,7 @@ const loadReimbursements = async (empId) => {
             <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
               <div>
                 <h1 style={{ fontSize: '2rem', fontWeight: 800 }}>
-                  {hrActiveTab === 'analytics' ? 'HR Dashboard' : hrActiveTab === 'attendance' ? 'Attendance Records' : hrActiveTab === 'leaves' ? 'Leave Requests' : hrActiveTab === 'salary' ? 'Salary & Payroll' : hrActiveTab === 'reimbursements' ? 'Reimbursements' : hrActiveTab === 'resignations' ? 'Resignations & Offboarding' : 'Employee Profiles'}
+                  {hrActiveTab === 'analytics' ? 'HR Dashboard' : hrActiveTab === 'attendance' ? 'Attendance Records' : hrActiveTab === 'leaves' ? 'Leave Requests' : hrActiveTab === 'salary' ? 'Salary & Payroll' : hrActiveTab === 'reimbursements' ? 'Reimbursements' : hrActiveTab === 'resignations' ? 'Resignations & Offboarding' : hrActiveTab === 'offer-letters' ? 'Offer Letters & Contracts' : 'Employee Profiles'}
                 </h1>
                 <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
                   {hrActiveTab === 'analytics' ? 'Real-time workforce efficiency and onboarding tracking metrics.'
@@ -2789,6 +2940,7 @@ const loadReimbursements = async (empId) => {
                     : hrActiveTab === 'salary' ? 'Monthly CTC configuration and compensation breakdowns.'
                     : hrActiveTab === 'reimbursements' ? 'Review and process employee expense claims.'
                     : hrActiveTab === 'resignations' ? 'Manage employee resignation requests, notice periods, and automated 5-day deactivation.'
+                    : hrActiveTab === 'offer-letters' ? 'Generate, customize, and manage official TOSBS appointment and offer letters with CTC Annexure.'
                     : 'Manage registrations and monitor your global human capital pipelines.'}
                 </p>
               </div>
@@ -3647,6 +3799,7 @@ const loadReimbursements = async (empId) => {
             <button onClick={() => setCurrentView('hr-dashboard')} className="btn btn-secondary">← Back to Panel</button>
             <div style={{ display: 'flex', gap: '0.75rem' }}>
               <button onClick={() => exportSingleEmployeeSheet(selectedEmp, selectedEmpDetails, selectedEmpVerification, selectedEmpDocs)} className="btn btn-secondary"><FileText size={16} /> Download as Excel</button>
+              <button onClick={() => openHrOfferLetterModal(selectedEmp)} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><FileCheck size={16} /> Offer Letter</button>
               {selectedEmp.status === 'digilocker_verified' && (
                 <button onClick={() => handleApproveOnboarding(selectedEmp.id)} className="btn btn-primary">Approve Onboarding ✓</button>
               )}
@@ -4206,6 +4359,7 @@ const loadReimbursements = async (empId) => {
             
               <button onClick={() => { setAttendanceTab('reimbursement'); loadReimbursements(activeEmployee.id); }} style={attendanceTab === 'reimbursement' ? sidebarLinkActiveStyle : sidebarLinkStyle}><CreditCard size={18} /><span>Reimbursement</span></button>
               <button onClick={() => { setAttendanceTab('resignation'); loadEmployeeResignation(activeEmployee.id); }} style={attendanceTab === 'resignation' ? sidebarLinkActiveStyle : sidebarLinkStyle}><UserMinus size={18} /><span>Resignation</span></button>
+              <button onClick={() => { setAttendanceTab('offer-letter'); loadEmployeeOfferLetter(activeEmployee.id); }} style={attendanceTab === 'offer-letter' ? sidebarLinkActiveStyle : sidebarLinkStyle}><FileCheck size={18} /><span>Offer Letter</span></button>
             </nav>
             <div style={sidebarUserStyle}>
               <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem' }}>{activeEmployee.full_name?.charAt(0)}</div>
@@ -4428,6 +4582,31 @@ const loadReimbursements = async (empId) => {
                     <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.04em' }}>Onboarding Status</p>
                     <div style={{ marginTop: '0.4rem' }}>{getStatusBadge(activeEmployee.status)}</div>
                   </div>
+                </div>
+
+                {/* Offer Letter Quick Access Card */}
+                <div className="glass-card" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', background: myOfferLetter?.data ? 'linear-gradient(135deg, rgba(200,146,42,0.1), rgba(200,146,42,0.02))' : 'var(--bg-secondary)', border: '1px solid rgba(200,146,42,0.25)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ width: '44px', height: '44px', borderRadius: '10px', backgroundColor: 'rgba(200,146,42,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <FileCheck size={24} color="#c8922a" />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Appointment Cum Offer Letter</h3>
+                      <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                        {myOfferLetter?.data ? 'Official 5-page employment contract with CTC computation issued.' : 'Awaiting HR generation and issuance.'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setAttendanceTab('offer-letter');
+                      loadEmployeeOfferLetter(activeEmployee.id);
+                    }}
+                    className="btn btn-primary"
+                    style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
+                  >
+                    {myOfferLetter?.data ? 'View & Download Offer Letter ➔' : 'Check Offer Letter Status ➔'}
+                  </button>
                 </div>
 
                 <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
@@ -5127,6 +5306,18 @@ const loadReimbursements = async (empId) => {
             )}
           </div>
         </div>
+      )}
+
+      {/* OFFER LETTER MODAL */}
+      {isOfferLetterModalOpen && (
+        <OfferLetterModal
+          isOpen={isOfferLetterModalOpen}
+          onClose={() => setIsOfferLetterModalOpen(false)}
+          employee={selectedOfferLetterEmployee}
+          offerData={selectedOfferLetterData}
+          isHrMode={isOfferLetterHrMode}
+          onSaveOfferLetter={handleSaveOfferLetter}
+        />
       )}
     </div>
   );
