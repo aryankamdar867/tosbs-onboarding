@@ -2204,7 +2204,7 @@ const loadReimbursements = async (empId) => {
           map[doc.employee_id] = {
             id: doc.id,
             data: typeof doc.file_url === 'string' && doc.file_url.startsWith('{') ? JSON.parse(doc.file_url) : null,
-            created_at: doc.created_at
+            created_at: doc.uploaded_at || doc.created_at
           };
         } catch (e) {
           console.error("Error parsing offer letter payload:", e);
@@ -2224,7 +2224,7 @@ const loadReimbursements = async (empId) => {
         .select('*')
         .eq('employee_id', empId)
         .eq('document_type', 'offer_letter')
-        .order('created_at', { ascending: false })
+        .order('uploaded_at', { ascending: false })
         .limit(1)
         .maybeSingle();
       if (error) throw error;
@@ -2234,7 +2234,7 @@ const loadReimbursements = async (empId) => {
           setMyOfferLetter({
             id: data.id,
             data: parsed,
-            created_at: data.created_at
+            created_at: data.uploaded_at || data.created_at
           });
         } catch (e) {
           setMyOfferLetter(null);
@@ -2292,6 +2292,9 @@ const loadReimbursements = async (empId) => {
   const handleSaveOfferLetter = async (savedData) => {
     if (!selectedOfferLetterEmployee) return;
     try {
+      const safeName = (selectedOfferLetterEmployee.full_name || 'Employee').replace(/[^a-zA-Z0-9]/g, '_');
+      const fileName = `TOSBS_Offer_Letter_${safeName}.pdf`;
+
       const { data: existingDocs } = await supabase
         .from('employee_documents')
         .select('id')
@@ -2302,11 +2305,9 @@ const loadReimbursements = async (empId) => {
         const { error } = await supabase
           .from('employee_documents')
           .update({
+            file_name: fileName,
             file_url: JSON.stringify(savedData),
-            document_name: 'Offer_Letter_' + (savedData.candidateCode || 'TOSBS') + '.json',
-            status: 'verified',
-            verification_source: 'hr_generated',
-            created_at: new Date().toISOString()
+            uploaded_at: new Date().toISOString()
           })
           .eq('id', existingDocs[0].id);
         if (error) throw error;
@@ -2316,10 +2317,9 @@ const loadReimbursements = async (empId) => {
           .insert({
             employee_id: selectedOfferLetterEmployee.id,
             document_type: 'offer_letter',
-            document_name: 'Offer_Letter_' + (savedData.candidateCode || 'TOSBS') + '.json',
+            file_name: fileName,
             file_url: JSON.stringify(savedData),
-            status: 'verified',
-            verification_source: 'hr_generated'
+            uploaded_at: new Date().toISOString()
           });
         if (error) throw error;
       }
@@ -2474,13 +2474,18 @@ const loadReimbursements = async (empId) => {
   };
   const exportAttendanceMasterSheet = async () => {
     try {
-      const { data: profiles } = await supabase
+      const { data: profiles, error: profErr } = await supabase
         .from('profiles')
-        .select('id, full_name, created_at, position, status')
+        .select('id, full_name, created_at, position, status, role')
         .order('full_name', { ascending: true });
 
-      const approvedEmployees = (profiles || []).filter(p => ['approved', 'digilocker_verified', 'details_filled', 'registered'].includes(p.status));
-      if (approvedEmployees.length === 0) {
+      if (profErr) throw profErr;
+
+      const validEmployees = (profiles || [])
+        .filter(p => p.role !== 'announcement' && p.status !== 'announcement' && p.role !== 'hr')
+        .sort((a, b) => (a.full_name || '').trim().localeCompare((b.full_name || '').trim()));
+
+      if (validEmployees.length === 0) {
         alert('No employees found to export attendance master sheet.');
         return;
       }
@@ -2525,11 +2530,14 @@ const loadReimbursements = async (empId) => {
         const startDate = `${year}-${monthStr}-01`;
         const endDate = `${year}-${monthStr}-${String(daysInMonth).padStart(2, '0')}`;
 
-        const { data: attendance } = await supabase
+        const { data: attendance, error: attErr } = await supabase
           .from('attendance')
           .select('*')
           .gte('date', startDate)
-          .lte('date', endDate);
+          .lte('date', endDate)
+          .limit(5000);
+
+        if (attErr) console.error('Error fetching month attendance:', attErr);
 
         const attMap = {};
         (attendance || []).forEach(r => {
@@ -2555,9 +2563,9 @@ const loadReimbursements = async (empId) => {
 
         const sheetRows = [row1, row2, row3, row4];
 
-        approvedEmployees.forEach((emp, idx) => {
-          const row = [idx + 1, (emp.full_name || 'EMPLOYEE').toUpperCase()];
-          const doj = dojMap[emp.id] || (emp.created_at ? emp.created_at.split('T')[0] : null);
+        validEmployees.forEach((emp, idx) => {
+          const row = [idx + 1, (emp.full_name || 'EMPLOYEE').trim().toUpperCase()];
+          const doj = dojMap[emp.id] || null;
 
           for (let d = 1; d <= daysInMonth; d++) {
             const dateStr = `${year}-${monthStr}-${String(d).padStart(2, '0')}`;
@@ -2566,13 +2574,12 @@ const loadReimbursements = async (empId) => {
             const isFest = FESTIVALS.some(f => f.month === monthStr && f.day === String(d).padStart(2, '0'));
             const hasLeave = (leaves || []).some(l => l.employee_id === emp.id && dateStr >= l.from_date && dateStr <= l.to_date);
 
-            if (doj && dateStr < doj) {
-              row.push('NA');
-            } else if (rec) {
+            if (rec) {
+              // Actual database attendance record ALWAYS takes highest priority
               if (rec.work_type === 'wfh') row.push('WFH');
               else if (rec.work_type === 'on_tour' || rec.status === 'tour') row.push('Tour');
               else if (rec.status === 'half_day') row.push('HD');
-              else if (rec.status === 'leave') row.push('Leave');
+              else if (rec.status === 'leave' || rec.work_type === 'leave') row.push('Leave');
               else if (rec.status === 'holiday') row.push('H');
               else if (rec.status === 'absent') row.push('A');
               else if (rec.status === 'present') row.push('P');
@@ -2584,6 +2591,9 @@ const loadReimbursements = async (empId) => {
             } else if (dayOfWeek === 0) {
               // Sunday
               row.push('');
+            } else if (doj && dateStr < doj) {
+              // Before official Date of Joining
+              row.push('NA');
             } else if (dateStr <= todayStr) {
               row.push('A');
             } else {
