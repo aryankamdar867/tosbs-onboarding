@@ -59,6 +59,8 @@ function App() {
   const [showAnnouncement, setShowAnnouncement] = useState(false);
   const [announcementForm, setAnnouncementForm] = useState({ title: '', message: '', start_date: '', end_date: '', scheduled_date: '', image_url: '' });
   const [announcementImageFile, setAnnouncementImageFile] = useState(null);
+  const [announcementSubmitting, setAnnouncementSubmitting] = useState(false);
+  const [announcementSuccessMsg, setAnnouncementSuccessMsg] = useState('');
   const [showAnnouncementPopup, setShowAnnouncementPopup] = useState(false);
   const [currentPopupAnnouncement, setCurrentPopupAnnouncement] = useState(null); 
   const [hrUser, setHrUser] = useState(null);
@@ -1066,19 +1068,46 @@ const handleHrLogin = (e) => {
       setLeaveApplications(data || []);
     } catch (err) { console.error(err); }
   };
-    const handleAnnouncementImageUpload = (e) => {
+  const handleAnnouncementImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onloadend = () => {
-      setAnnouncementImageFile(file.name);
-      setAnnouncementForm(prev => ({ ...prev, image_url: reader.result }));
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 800;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        setAnnouncementImageFile(file.name);
+        setAnnouncementForm(prev => ({ ...prev, image_url: compressedDataUrl }));
+      };
+      img.src = event.target.result;
     };
     reader.readAsDataURL(file);
   };
 
   const sendAnnouncement = async () => {
-    if (!announcementForm.title.trim()) { alert('Please enter a title.'); return; }
+    if (!announcementForm.title.trim()) {
+      alert('Please enter an announcement title.');
+      return;
+    }
+    setAnnouncementSubmitting(true);
+    setAnnouncementSuccessMsg('');
     try {
       const today = new Date().toISOString().split('T')[0];
       const startDate = announcementForm.start_date || announcementForm.scheduled_date || today;
@@ -1086,6 +1115,7 @@ const handleHrLogin = (e) => {
 
       if (endDate && endDate < startDate) {
         alert('End date cannot be before start date.');
+        setAnnouncementSubmitting(false);
         return;
       }
 
@@ -1127,12 +1157,13 @@ const handleHrLogin = (e) => {
 
       setAnnouncementForm({ title: '', message: '', start_date: '', end_date: '', scheduled_date: '', image_url: '' });
       setAnnouncementImageFile(null);
-      setShowAnnouncement(false);
+      setAnnouncementSuccessMsg(startDate > today ? `✓ Announcement scheduled from ${startDate}${endDate ? ` to ${endDate}` : ''}!` : `✓ Announcement published successfully!`);
       await loadHrCelebrations();
-      alert(startDate > today ? `Announcement scheduled from ${startDate}${endDate ? ` to ${endDate}` : ''}!` : `Announcement published${endDate ? ` (active until ${endDate})` : ''}!`);
     } catch (err) {
       console.error('Error sending announcement:', err);
       alert('Failed to send announcement: ' + (err.message || err));
+    } finally {
+      setAnnouncementSubmitting(false);
     }
   };
 
@@ -2646,16 +2677,22 @@ const loadReimbursements = async (empId) => {
                 <UserMinus size={18} /><span>Resignations</span>
                 {hrResignations.filter(r => r.status === 'pending').length > 0 && <span style={badgeCountStyle}>{hrResignations.filter(r => r.status === 'pending').length}</span>}
               </button>
-              <button onClick={() => setShowAnnouncement(!showAnnouncement)} style={sidebarLinkStyle}>
+              <button onClick={() => { setShowAnnouncement(!showAnnouncement); setAnnouncementSuccessMsg(''); }} style={sidebarLinkStyle}>
                 <Bell size={18} /><span>Announce</span>
               </button>
-                            {showAnnouncement && (
-                <div style={{ position: 'fixed', top: 0, left: '260px', right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 500, display: 'flex', alignItems: 'flex-start', padding: '2rem', overflowY: 'auto' }}>
-                  <div className="glass-card" style={{ width: '100%', maxWidth: '700px', border: '1px solid rgba(200,146,42,0.3)', animation: 'slideUp 0.3s ease' }}>
+              {showAnnouncement && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '2rem', overflowY: 'auto' }}>
+                  <div className="glass-card" style={{ width: '100%', maxWidth: '700px', border: '1px solid rgba(200,146,42,0.3)', animation: 'slideUp 0.3s ease', margin: 'auto' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>
                       <h2 style={{ fontSize: '1.2rem', margin: 0 }}>📢 Manage Announcements</h2>
                       <button onClick={() => setShowAnnouncement(false)} className="btn btn-secondary" style={{ padding: '4px 10px' }}>✕</button>
                     </div>
+
+                    {announcementSuccessMsg && (
+                      <div style={{ padding: '0.75rem 1rem', backgroundColor: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '8px', color: 'var(--color-success)', fontSize: '0.88rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span>✓</span> <strong>{announcementSuccessMsg}</strong>
+                      </div>
+                    )}
 
                     {/* Create */}
                     <div style={{ padding: '1.25rem', backgroundColor: 'rgba(200,146,42,0.05)', borderRadius: '12px', border: '1px solid rgba(200,146,42,0.15)', marginBottom: '1.5rem' }}>
@@ -2684,8 +2721,8 @@ const loadReimbursements = async (empId) => {
                         {announcementImageFile && <p style={{ fontSize: '0.75rem', color: 'var(--color-success)', marginTop: '0.25rem' }}>✓ {announcementImageFile}</p>}
                         {announcementForm.image_url && <img src={announcementForm.image_url} alt="Preview" style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', borderRadius: '8px', marginTop: '0.5rem' }} />}
                       </div>
-                      <button onClick={sendAnnouncement} className="btn btn-primary">
-                        {(announcementForm.start_date || announcementForm.scheduled_date) && (announcementForm.start_date || announcementForm.scheduled_date) > new Date().toISOString().split('T')[0] ? '📅 Schedule Announcement' : '📢 Publish Announcement'}
+                      <button type="button" onClick={sendAnnouncement} className="btn btn-primary" disabled={announcementSubmitting} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {announcementSubmitting ? '⏳ Publishing...' : (announcementForm.start_date || announcementForm.scheduled_date) && (announcementForm.start_date || announcementForm.scheduled_date) > new Date().toISOString().split('T')[0] ? '📅 Schedule Announcement' : '📢 Publish Announcement'}
                       </button>
                     </div>
 
