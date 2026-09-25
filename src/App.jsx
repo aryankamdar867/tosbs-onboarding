@@ -3791,6 +3791,170 @@ const loadReimbursements = async (empId) => {
                 </div>
               </div>
             )}
+
+            {hrActiveTab === 'offer-letters' && (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
+                  <div className="glass-card" style={statCardStyle}>
+                    <p style={statLabelStyle}>TOTAL EMPLOYEES</p>
+                    <p style={{ ...statValStyle, color: 'var(--color-text-primary)' }}>{employees.length}</p>
+                    <p style={statSubStyle}>Across all departments</p>
+                  </div>
+                  <div className="glass-card" style={statCardStyle}>
+                    <p style={statLabelStyle}>OFFER LETTERS ISSUED</p>
+                    <p style={{ ...statValStyle, color: 'var(--color-success)' }}>{Object.keys(offerLettersMap).length}</p>
+                    <p style={statSubStyle}>Generated & stored in database</p>
+                  </div>
+                  <div className="glass-card" style={statCardStyle}>
+                    <p style={statLabelStyle}>PENDING GENERATION</p>
+                    <p style={{ ...statValStyle, color: 'var(--color-orange)' }}>
+                      {Math.max(0, employees.filter(e => ['approved', 'registered', 'details_filled', 'digilocker_verified'].includes(e.status)).length - Object.keys(offerLettersMap).length)}
+                    </p>
+                    <p style={statSubStyle}>Eligible candidates awaiting offer letter</p>
+                  </div>
+                </div>
+
+                <div className="glass-card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: '260px' }}>
+                      <div style={{ position: 'relative', width: '100%', maxWidth: '360px' }}>
+                        <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+                        <input
+                          type="text"
+                          placeholder="Search employee name, code, or role..."
+                          value={offerLetterSearch}
+                          onChange={(e) => setOfferLetterSearch(e.target.value)}
+                          className="form-input"
+                          style={{ paddingLeft: '2.5rem', width: '100%' }}
+                        />
+                      </div>
+                    </div>
+                    <button
+                      onClick={loadAllOfferLetters}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.85rem' }}
+                    >
+                      ↻ Refresh Records
+                    </button>
+                  </div>
+
+                  <div className="table-container">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Candidate / Employee</th>
+                          <th>Candidate Code</th>
+                          <th>Designation & Dept</th>
+                          <th>Onboarding Status</th>
+                          <th>Offer Letter Status</th>
+                          <th>Last Generated</th>
+                          <th style={{ textAlign: 'right' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {employees
+                          .filter(emp => {
+                            if (!offerLetterSearch) return true;
+                            const q = offerLetterSearch.toLowerCase();
+                            return (
+                              (emp.full_name || '').toLowerCase().includes(q) ||
+                              (emp.short_code || '').toLowerCase().includes(q) ||
+                              (emp.position || '').toLowerCase().includes(q) ||
+                              (emp.email || '').toLowerCase().includes(q)
+                            );
+                          })
+                          .map(emp => {
+                            const letter = offerLettersMap[emp.id];
+                            const hasLetter = !!(letter && letter.data);
+                            return (
+                              <tr key={emp.id}>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                    <div className="avatar-circle" style={{ width: '36px', height: '36px', fontSize: '0.9rem' }}>
+                                      {emp.full_name?.charAt(0) || 'E'}
+                                    </div>
+                                    <div>
+                                      <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem' }}>{emp.full_name}</p>
+                                      <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{emp.email}</p>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td>
+                                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-orange)', backgroundColor: 'rgba(200,146,42,0.1)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.85rem' }}>
+                                    {emp.short_code || (letter?.data?.candidateCode) || '—'}
+                                  </span>
+                                </td>
+                                <td>
+                                  <p style={{ margin: 0, fontSize: '0.88rem', fontWeight: 500 }}>{emp.position || '—'}</p>
+                                </td>
+                                <td>
+                                  <span className={`badge ${emp.status === 'approved' ? 'badge-success' : emp.status === 'digilocker_verified' ? 'badge-info' : 'badge-pending'}`}>
+                                    {emp.status === 'approved' ? '✓ Approved' : emp.status === 'digilocker_verified' ? 'DigiLocker Verified' : emp.status || 'Pending'}
+                                  </span>
+                                </td>
+                                <td>
+                                  {hasLetter ? (
+                                    <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                      <CheckCircle2 size={13} /> Generated
+                                    </span>
+                                  ) : (
+                                    <span className="badge" style={{ backgroundColor: 'rgba(100,116,139,0.15)', color: '#64748b' }}>
+                                      Not Generated
+                                    </span>
+                                  )}
+                                </td>
+                                <td>
+                                  <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                    {letter?.created_at ? new Date(letter.created_at).toLocaleDateString('en-IN') : '—'}
+                                  </span>
+                                </td>
+                                <td style={{ textAlign: 'right' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                                    {hasLetter ? (
+                                      <>
+                                        <button
+                                          onClick={() => {
+                                            setSelectedOfferLetterEmployee(emp);
+                                            setSelectedOfferLetterData(letter.data);
+                                            setIsOfferLetterHrMode(false);
+                                            setIsOfferLetterModalOpen(true);
+                                          }}
+                                          className="btn btn-secondary"
+                                          style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                          title="View, Print & Download"
+                                        >
+                                          <Eye size={14} /> View / Print
+                                        </button>
+                                        <button
+                                          onClick={() => openHrOfferLetterModal(emp)}
+                                          className="btn btn-secondary"
+                                          style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
+                                          title="Edit details and regenerate"
+                                        >
+                                          Edit ✎
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <button
+                                        onClick={() => openHrOfferLetterModal(emp)}
+                                        className="btn btn-primary"
+                                        style={{ fontSize: '0.75rem', padding: '0.35rem 0.85rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                      >
+                                        <Plus size={14} /> Generate
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}
@@ -5307,6 +5471,101 @@ const loadReimbursements = async (empId) => {
                 )}
               </div>
             )}
+
+            {attendanceTab === 'offer-letter' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>Appointment & Offer Letter</h2>
+                    <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', margin: '4px 0 0' }}>
+                      Review your official employment contract, terms of appointment, and CTC Annexure breakdown.
+                    </p>
+                  </div>
+                  {myOfferLetter?.data && (
+                    <div style={{ display: 'flex', gap: '0.75rem' }}>
+                      <button
+                        onClick={() => {
+                          setSelectedOfferLetterEmployee(activeEmployee);
+                          setSelectedOfferLetterData(myOfferLetter.data);
+                          setIsOfferLetterHrMode(false);
+                          setIsOfferLetterModalOpen(true);
+                        }}
+                        className="btn btn-secondary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                      >
+                        <Eye size={16} /> Fullscreen View
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedOfferLetterEmployee(activeEmployee);
+                          setSelectedOfferLetterData(myOfferLetter.data);
+                          setIsOfferLetterHrMode(false);
+                          setIsOfferLetterModalOpen(true);
+                          setTimeout(() => { window.print(); }, 400);
+                        }}
+                        className="btn btn-primary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                      >
+                        <Printer size={16} /> Print / Save PDF
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {myOfferLetter?.data ? (
+                  <div>
+                    {/* Summary Info Banner */}
+                    <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1.5rem', background: 'linear-gradient(135deg, rgba(200,146,42,0.08), rgba(200,146,42,0.02))', border: '1px solid rgba(200,146,42,0.2)' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', alignItems: 'center' }}>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Candidate Code</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '1rem', fontWeight: 800, color: 'var(--color-orange)', fontFamily: 'monospace' }}>
+                            {myOfferLetter.data.candidateCode || activeEmployee.short_code}
+                          </p>
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Designation</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                            {myOfferLetter.data.designation || activeEmployee.position}
+                          </p>
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Annual CTC</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '1.1rem', fontWeight: 800, color: 'var(--color-success)' }}>
+                            ₹{Number(myOfferLetter.data.annualCtc || 0).toLocaleString('en-IN')}
+                          </p>
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Joining Date</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '0.95rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                            {myOfferLetter.data.joiningDate}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Embedded 5-Page Document Preview */}
+                    <div style={{ maxHeight: '750px', overflowY: 'auto', padding: '1rem', backgroundColor: '#525659', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.2)' }}>
+                      <OfferLetterDocument data={myOfferLetter.data} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="glass-card" style={{ textAlign: 'center', padding: '4rem 2rem', maxWidth: '650px', margin: '2rem auto' }}>
+                    <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'rgba(200,146,42,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+                      <FileText size={32} color="#c8922a" />
+                    </div>
+                    <h3 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '0.5rem' }}>Offer Letter in Preparation</h3>
+                    <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', lineHeight: 1.6, margin: '0 0 1.5rem' }}>
+                      Your official appointment cum offer letter is currently being prepared by the HR team. Once issued, you will be able to preview all 5 pages, verify your CTC Annexure breakdown, and download/print your official contract here.
+                    </p>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 14px', borderRadius: '20px', backgroundColor: 'rgba(200,146,42,0.1)', color: 'var(--color-orange)', fontSize: '0.8rem', fontWeight: 600 }}>
+                      ⏳ Status: Awaiting HR Issuance
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
         </div>
       )}
