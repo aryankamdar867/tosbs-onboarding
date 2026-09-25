@@ -2828,6 +2828,9 @@ const loadReimbursements = async (empId) => {
                 <UserMinus size={18} /><span>Resignations</span>
                 {hrResignations.filter(r => r.status === 'pending').length > 0 && <span style={badgeCountStyle}>{hrResignations.filter(r => r.status === 'pending').length}</span>}
               </button>
+              <button onClick={() => { setHrActiveTab('offer-letters'); loadAllOfferLetters(); }} style={hrActiveTab === 'offer-letters' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+                <FileCheck size={18} /><span>Offer Letters</span>
+              </button>
               <button onClick={() => { setShowAnnouncement(!showAnnouncement); setAnnouncementSuccessMsg(''); }} style={sidebarLinkStyle}>
                 <Bell size={18} /><span>Announce</span>
               </button>
