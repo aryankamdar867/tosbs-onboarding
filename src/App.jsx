@@ -255,11 +255,12 @@ function App() {
     try {
       const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
       if (error) throw error;
-      setEmployees(data || []);
-      const total = data.length;
-      const completed = data.filter(e => e.status === 'approved').length;
-      const pendingVerify = data.filter(e => e.status === 'registered' || e.status === 'details_filled').length;
-      const pendingReview = data.filter(e => e.status === 'digilocker_verified').length;
+      const filtered = (data || []).filter(e => e.role !== 'announcement' && e.status !== 'announcement');
+      setEmployees(filtered);
+      const total = filtered.length;
+      const completed = filtered.filter(e => e.status === 'approved').length;
+      const pendingVerify = filtered.filter(e => e.status === 'registered' || e.status === 'details_filled').length;
+      const pendingReview = filtered.filter(e => e.status === 'digilocker_verified').length;
       setStats({ total, completed, pendingVerify, pendingReview });
     } catch (err) { console.error('Error loading employees:', err); }
   };
@@ -947,9 +948,9 @@ const handleHrLogin = (e) => {
     setAttendanceError('');
     setShowWfhOption(false);
 
-    const OFFICE_LAT = parseFloat(import.meta.env.VITE_OFFICE_LAT || '18.4988');
-    const OFFICE_LNG = parseFloat(import.meta.env.VITE_OFFICE_LNG || '73.8519');
-    const OFFICE_RADIUS = parseInt(import.meta.env.VITE_OFFICE_RADIUS_M || '150');
+    const OFFICE_LAT = parseFloat(import.meta.env.VITE_OFFICE_LAT || '18.49808');
+    const OFFICE_LNG = parseFloat(import.meta.env.VITE_OFFICE_LNG || '73.85377');
+    const OFFICE_RADIUS = parseInt(import.meta.env.VITE_OFFICE_RADIUS_M || '250');
 
     try {
       const position = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -1089,42 +1090,60 @@ const handleHrLogin = (e) => {
       }
 
       const rawMessage = announcementForm.message || '';
-      const messageWithEndDate = endDate ? `${rawMessage}\n<!--END_DATE:${endDate}-->` : rawMessage;
+      const uniqueId = `ann_${Date.now()}`;
 
-      const payload = {
-        employee_id: null,
-        title: announcementForm.title.trim(),
-        message: messageWithEndDate,
-        scheduled_date: startDate,
-        image_url: announcementForm.image_url || null,
-        is_announcement: true,
-        created_at: new Date().toISOString(),
+      // Insert into profiles table with role: 'announcement' (RLS-friendly)
+      const announcementProfile = {
+        full_name: announcementForm.title.trim(),
+        email: `${uniqueId}@announcement.tosbs.local`,
+        role: 'announcement',
+        status: 'announcement',
+        job_title: rawMessage,
+        dob: startDate,
+        employee_code: endDate || null,
+        photo_status: announcementForm.image_url || null,
+        invite_token: uniqueId
       };
 
-      // Try inserting with end_date column first, fallback to message-encoded if column does not exist
-      try {
-        const { error: errWithCol } = await supabase.from('notifications').insert({ ...payload, end_date: endDate });
-        if (errWithCol) {
-          await supabase.from('notifications').insert(payload);
-        }
-      } catch (e) {
-        await supabase.from('notifications').insert(payload);
+      const { error: profErr } = await supabase.from('profiles').insert([announcementProfile]);
+      if (profErr) {
+        console.error('Announcement profile insert error:', profErr);
+        throw profErr;
       }
+
+      // Also try inserting to notifications table if available
+      try {
+        const payload = {
+          employee_id: null,
+          title: announcementForm.title.trim(),
+          message: endDate ? `${rawMessage}\n<!--END_DATE:${endDate}-->` : rawMessage,
+          scheduled_date: startDate,
+          image_url: announcementForm.image_url || null,
+          is_announcement: true,
+          created_at: new Date().toISOString(),
+        };
+        await supabase.from('notifications').insert(payload);
+      } catch (ne) {}
 
       setAnnouncementForm({ title: '', message: '', start_date: '', end_date: '', scheduled_date: '', image_url: '' });
       setAnnouncementImageFile(null);
       setShowAnnouncement(false);
-      loadHrCelebrations();
+      await loadHrCelebrations();
       alert(startDate > today ? `Announcement scheduled from ${startDate}${endDate ? ` to ${endDate}` : ''}!` : `Announcement published${endDate ? ` (active until ${endDate})` : ''}!`);
     } catch (err) {
       console.error('Error sending announcement:', err);
-      alert('Failed to send announcement.');
+      alert('Failed to send announcement: ' + (err.message || err));
     }
   };
 
   const deleteAnnouncement = async (id) => {
     if (!window.confirm('Delete this announcement?')) return;
-    await supabase.from('notifications').delete().eq('id', id);
+    try {
+      await supabase.from('profiles').delete().eq('id', id);
+    } catch (e) {}
+    try {
+      await supabase.from('notifications').delete().eq('id', id);
+    } catch (e) {}
     loadHrCelebrations();
   };
   const loadHrLeaves = async () => {
@@ -1629,41 +1648,85 @@ const handleHrLogin = (e) => {
   };
 
   // ---------- Celebrations & Notifications ----------
+  const fetchAllAnnouncements = async (empId = null) => {
+    try {
+      const { data: profAnns } = await supabase.from('profiles').select('*').eq('role', 'announcement').order('created_at', { ascending: false });
+      
+      let notifAnns = [];
+      try {
+        let notifQuery = supabase.from('notifications').select('*');
+        if (empId) {
+          notifQuery = notifQuery.or(`employee_id.eq.${empId},employee_id.is.null`);
+        } else {
+          notifQuery = notifQuery.is('employee_id', null);
+        }
+        const res = await notifQuery.order('created_at', { ascending: false }).limit(30);
+        notifAnns = res.data || [];
+      } catch (e) {}
+
+      const mappedProfAnns = (profAnns || []).map(p => ({
+        id: p.id,
+        title: p.full_name,
+        message: p.job_title || '',
+        start_date: p.dob || (p.created_at ? p.created_at.split('T')[0] : ''),
+        scheduled_date: p.dob || (p.created_at ? p.created_at.split('T')[0] : ''),
+        end_date: p.employee_code || null,
+        image_url: p.photo_status || null,
+        is_announcement: true,
+        created_at: p.created_at
+      }));
+
+      const rawNotifs = (notifAnns || []).map(n => ({
+        ...n,
+        is_announcement: n.is_announcement !== false,
+      }));
+
+      const combined = [...mappedProfAnns];
+      for (const n of rawNotifs) {
+        if (!combined.some(c => c.id === n.id)) {
+          combined.push(n);
+        }
+      }
+      combined.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      return combined;
+    } catch (err) {
+      console.error('Error fetching announcements:', err);
+      return [];
+    }
+  };
+
   const loadCelebrationsAndNotifications = async (empId) => {
     try {
       const today = new Date();
-      const mm = String(today.getMonth() + 1).padStart(2, '0');
-      const dd = String(today.getDate()).padStart(2, '0');
       const todayISO = today.toISOString().split('T')[0];
 
-      const { data: rpcData } = await supabase.rpc('get_todays_celebrations');
-      const todays = (rpcData || []).map(r => ({ employeeId: r.employee_id, name: r.full_name, position: r.position, type: r.celebration_type }));
-      setCelebrations(todays);
+      try {
+        const { data: rpcData } = await supabase.rpc('get_todays_celebrations');
+        const todays = (rpcData || []).map(r => ({ employeeId: r.employee_id, name: r.full_name, position: r.position, type: r.celebration_type }));
+        setCelebrations(todays);
+      } catch (e) {}
       setFestivalsToday(getTodaysFestivals());
 
-      const { data: wishesToday } = await supabase.from('wishes').select('to_employee_id').eq('from_employee_id', empId).eq('occasion_date', todayISO);
-      setSentWishesToday((wishesToday || []).map(w => w.to_employee_id));
+      try {
+        const { data: wishesToday } = await supabase.from('wishes').select('to_employee_id').eq('from_employee_id', empId).eq('occasion_date', todayISO);
+        setSentWishesToday((wishesToday || []).map(w => w.to_employee_id));
 
-      const { data: myWishes } = await supabase.from('wishes').select('*').eq('to_employee_id', empId).eq('occasion_date', todayISO);
-      let wishesWithNames = myWishes || [];
-      if (wishesWithNames.length) {
-        const fromIds = [...new Set(wishesWithNames.map(w => w.from_employee_id))];
-        const { data: fromProfiles } = await supabase.from('profiles').select('id, full_name').in('id', fromIds);
-        const fromMap = Object.fromEntries((fromProfiles || []).map(p => [p.id, p.full_name]));
-        wishesWithNames = wishesWithNames.map(w => ({ ...w, from_name: fromMap[w.from_employee_id] || 'A colleague' }));
-      }
-      setWishesReceived(wishesWithNames);
+        const { data: myWishes } = await supabase.from('wishes').select('*').eq('to_employee_id', empId).eq('occasion_date', todayISO);
+        let wishesWithNames = myWishes || [];
+        if (wishesWithNames.length) {
+          const fromIds = [...new Set(wishesWithNames.map(w => w.from_employee_id))];
+          const { data: fromProfiles } = await supabase.from('profiles').select('id, full_name').in('id', fromIds);
+          const fromMap = Object.fromEntries((fromProfiles || []).map(p => [p.id, p.full_name]));
+          wishesWithNames = wishesWithNames.map(w => ({ ...w, from_name: fromMap[w.from_employee_id] || 'A colleague' }));
+        }
+        setWishesReceived(wishesWithNames);
+      } catch (e) {}
 
-      const { data: notifs } = await supabase
-        .from('notifications')
-        .select('*')
-        .or(`employee_id.eq.${empId},employee_id.is.null`)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      setNotifications(notifs || []);
+      const allNotifs = await fetchAllAnnouncements(empId);
+      setNotifications(allNotifs || []);
 
       // Show popup for latest unseen active announcement
-      const latestAnnouncement = (notifs || []).find(n => {
+      const latestAnnouncement = (allNotifs || []).find(n => {
         if (!n.is_announcement) return false;
         const { startDate, endDate } = getAnnouncementDates(n);
         if (startDate && startDate > todayISO) return false;
@@ -1683,13 +1746,15 @@ const handleHrLogin = (e) => {
 
   const loadHrCelebrations = async () => {
     try {
-     const { data: rpcData } = await supabase.rpc('get_todays_celebrations');
-      const todays = (rpcData || []).map(r => ({ employeeId: r.employee_id, name: r.full_name, position: r.position, type: r.celebration_type }));
-      setCelebrations(todays);
+      try {
+        const { data: rpcData } = await supabase.rpc('get_todays_celebrations');
+        const todays = (rpcData || []).map(r => ({ employeeId: r.employee_id, name: r.full_name, position: r.position, type: r.celebration_type }));
+        setCelebrations(todays);
+      } catch (e) {}
       setFestivalsToday(getTodaysFestivals());
 
-      const { data: notifs } = await supabase.from('notifications').select('*').is('employee_id', null).order('created_at', { ascending: false }).limit(20);
-      setNotifications(notifs || []);
+      const allNotifs = await fetchAllAnnouncements();
+      setNotifications(allNotifs || []);
     } catch (err) { console.error('Error loading HR celebrations:', err); }
   };
 
