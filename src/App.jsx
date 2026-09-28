@@ -149,6 +149,7 @@ function App() {
   const [offerLettersMap, setOfferLettersMap] = useState({});
   const [myOfferLetter, setMyOfferLetter] = useState(null);
   const [offerLetterSearch, setOfferLetterSearch] = useState('');
+  const [offerLetterFilter, setOfferLetterFilter] = useState('new_joiners'); // 'new_joiners' | 'pending' | 'issued' | 'all'
 
   // Attendance state
   const [attendanceTab, setAttendanceTab] = useState('overview');
@@ -2191,6 +2192,15 @@ const loadReimbursements = async (empId) => {
     } catch (err) { console.error(err); alert('Export failed.'); }
   };
   
+  const isNewJoiner = (emp) => {
+    if (!emp) return false;
+    if (offerLettersMap && offerLettersMap[emp.id]) return true;
+    if (['invited', 'registered', 'details_filled', 'digilocker_verified'].includes(emp.status)) return true;
+    if (emp.id && !emp.id.startsWith('a1000001-')) return true;
+    if (emp.created_at && new Date(emp.created_at) > new Date('2026-08-15T00:00:00Z')) return true;
+    return false;
+  };
+
   const loadAllOfferLetters = async () => {
     try {
       const { data, error } = await supabase
@@ -3802,168 +3812,230 @@ const loadReimbursements = async (empId) => {
               </div>
             )}
 
-            {hrActiveTab === 'offer-letters' && (
-              <div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
-                  <div className="glass-card" style={statCardStyle}>
-                    <p style={statLabelStyle}>TOTAL EMPLOYEES</p>
-                    <p style={{ ...statValStyle, color: 'var(--color-text-primary)' }}>{employees.length}</p>
-                    <p style={statSubStyle}>Across all departments</p>
-                  </div>
-                  <div className="glass-card" style={statCardStyle}>
-                    <p style={statLabelStyle}>OFFER LETTERS ISSUED</p>
-                    <p style={{ ...statValStyle, color: 'var(--color-success)' }}>{Object.keys(offerLettersMap).length}</p>
-                    <p style={statSubStyle}>Generated & stored in database</p>
-                  </div>
-                  <div className="glass-card" style={statCardStyle}>
-                    <p style={statLabelStyle}>PENDING GENERATION</p>
-                    <p style={{ ...statValStyle, color: 'var(--color-orange)' }}>
-                      {Math.max(0, employees.filter(e => ['approved', 'registered', 'details_filled', 'digilocker_verified'].includes(e.status)).length - Object.keys(offerLettersMap).length)}
-                    </p>
-                    <p style={statSubStyle}>Eligible candidates awaiting offer letter</p>
-                  </div>
-                </div>
+            {hrActiveTab === 'offer-letters' && (() => {
+              const newJoiners = employees.filter(e => isNewJoiner(e));
+              const pendingNewJoiners = newJoiners.filter(e => !offerLettersMap[e.id]);
+              const issuedCount = Object.keys(offerLettersMap).length;
 
-                <div className="glass-card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: '260px' }}>
-                      <div style={{ position: 'relative', width: '100%', maxWidth: '360px' }}>
-                        <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-                        <input
-                          type="text"
-                          placeholder="Search employee name, code, or role..."
-                          value={offerLetterSearch}
-                          onChange={(e) => setOfferLetterSearch(e.target.value)}
-                          className="form-input"
-                          style={{ paddingLeft: '2.5rem', width: '100%' }}
-                        />
-                      </div>
+              const displayedEmployees = employees.filter(emp => {
+                if (offerLetterSearch) {
+                  const q = offerLetterSearch.toLowerCase();
+                  const matchesSearch = (emp.full_name || '').toLowerCase().includes(q) ||
+                    (emp.short_code || '').toLowerCase().includes(q) ||
+                    (emp.position || '').toLowerCase().includes(q) ||
+                    (emp.email || '').toLowerCase().includes(q);
+                  if (!matchesSearch) return false;
+                }
+
+                const isNew = isNewJoiner(emp);
+                const hasLetter = !!(offerLettersMap[emp.id]?.data);
+
+                if (offerLetterFilter === 'new_joiners') return isNew;
+                if (offerLetterFilter === 'pending') return isNew && !hasLetter;
+                if (offerLetterFilter === 'issued') return hasLetter;
+                return true; // 'all'
+              });
+
+              return (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
+                    <div className="glass-card" style={statCardStyle}>
+                      <p style={statLabelStyle}>ELIGIBLE NEW JOINERS</p>
+                      <p style={{ ...statValStyle, color: 'var(--color-text-primary)' }}>{newJoiners.length}</p>
+                      <p style={statSubStyle}>New onboarding candidates</p>
                     </div>
-                    <button
-                      onClick={loadAllOfferLetters}
-                      className="btn btn-secondary"
-                      style={{ fontSize: '0.85rem' }}
-                    >
-                      ↻ Refresh Records
-                    </button>
+                    <div className="glass-card" style={statCardStyle}>
+                      <p style={statLabelStyle}>OFFER LETTERS ISSUED</p>
+                      <p style={{ ...statValStyle, color: 'var(--color-success)' }}>{issuedCount}</p>
+                      <p style={statSubStyle}>Generated & stored in database</p>
+                    </div>
+                    <div className="glass-card" style={statCardStyle}>
+                      <p style={statLabelStyle}>PENDING GENERATION</p>
+                      <p style={{ ...statValStyle, color: 'var(--color-orange)' }}>{pendingNewJoiners.length}</p>
+                      <p style={statSubStyle}>New joiners awaiting letter</p>
+                    </div>
                   </div>
 
-                  <div className="table-container">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Candidate / Employee</th>
-                          <th>Candidate Code</th>
-                          <th>Designation & Dept</th>
-                          <th>Onboarding Status</th>
-                          <th>Offer Letter Status</th>
-                          <th>Last Generated</th>
-                          <th style={{ textAlign: 'right' }}>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {employees
-                          .filter(emp => {
-                            if (!offerLetterSearch) return true;
-                            const q = offerLetterSearch.toLowerCase();
-                            return (
-                              (emp.full_name || '').toLowerCase().includes(q) ||
-                              (emp.short_code || '').toLowerCase().includes(q) ||
-                              (emp.position || '').toLowerCase().includes(q) ||
-                              (emp.email || '').toLowerCase().includes(q)
-                            );
-                          })
-                          .map(emp => {
-                            const letter = offerLettersMap[emp.id];
-                            const hasLetter = !!(letter && letter.data);
-                            return (
-                              <tr key={emp.id}>
-                                <td>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                    <div className="avatar-circle" style={{ width: '36px', height: '36px', fontSize: '0.9rem' }}>
-                                      {emp.full_name?.charAt(0) || 'E'}
+                  <div className="glass-card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: '260px', flexWrap: 'wrap' }}>
+                        <div style={{ position: 'relative', width: '100%', maxWidth: '320px' }}>
+                          <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+                          <input
+                            type="text"
+                            placeholder="Search employee name, code, or role..."
+                            value={offerLetterSearch}
+                            onChange={(e) => setOfferLetterSearch(e.target.value)}
+                            className="form-input"
+                            style={{ paddingLeft: '2.5rem', width: '100%' }}
+                          />
+                        </div>
+
+                        {/* Filter Tabs */}
+                        <div style={{ display: 'flex', backgroundColor: 'var(--bg-tertiary)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border-color)', gap: '4px' }}>
+                          {[
+                            { id: 'new_joiners', label: `✨ New Joiners (${newJoiners.length})` },
+                            { id: 'pending', label: `⏳ Pending (${pendingNewJoiners.length})` },
+                            { id: 'issued', label: `✓ Issued (${issuedCount})` },
+                            { id: 'all', label: `👥 All (${employees.length})` }
+                          ].map(tab => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setOfferLetterFilter(tab.id)}
+                              style={{
+                                padding: '5px 12px',
+                                fontSize: '0.78rem',
+                                fontWeight: offerLetterFilter === tab.id ? 700 : 500,
+                                borderRadius: '6px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                backgroundColor: offerLetterFilter === tab.id ? '#c8922a' : 'transparent',
+                                color: offerLetterFilter === tab.id ? '#0a1628' : 'var(--color-text-secondary)',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <button
+                        onClick={loadAllOfferLetters}
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.85rem' }}
+                      >
+                        ↻ Refresh Records
+                      </button>
+                    </div>
+
+                    <div className="table-container">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Candidate / Employee</th>
+                            <th>Candidate Code</th>
+                            <th>Designation & Dept</th>
+                            <th>Type</th>
+                            <th>Onboarding Status</th>
+                            <th>Offer Letter Status</th>
+                            <th>Last Generated</th>
+                            <th style={{ textAlign: 'right' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {displayedEmployees.length === 0 ? (
+                            <tr>
+                              <td colSpan={8} style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--color-text-muted)' }}>
+                                No employees match the selected filter.
+                              </td>
+                            </tr>
+                          ) : (
+                            displayedEmployees.map(emp => {
+                              const letter = offerLettersMap[emp.id];
+                              const hasLetter = !!(letter && letter.data);
+                              const isNew = isNewJoiner(emp);
+                              return (
+                                <tr key={emp.id}>
+                                  <td>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                      <div className="avatar-circle" style={{ width: '36px', height: '36px', fontSize: '0.9rem' }}>
+                                        {emp.full_name?.charAt(0) || 'E'}
+                                      </div>
+                                      <div>
+                                        <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem' }}>{emp.full_name}</p>
+                                        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{emp.email}</p>
+                                      </div>
                                     </div>
-                                    <div>
-                                      <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem' }}>{emp.full_name}</p>
-                                      <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{emp.email}</p>
-                                    </div>
-                                  </div>
-                                </td>
-                                <td>
-                                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-orange)', backgroundColor: 'rgba(200,146,42,0.1)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.85rem' }}>
-                                    {emp.short_code || (letter?.data?.candidateCode) || '—'}
-                                  </span>
-                                </td>
-                                <td>
-                                  <p style={{ margin: 0, fontSize: '0.88rem', fontWeight: 500 }}>{emp.position || '—'}</p>
-                                </td>
-                                <td>
-                                  <span className={`badge ${emp.status === 'approved' ? 'badge-success' : emp.status === 'digilocker_verified' ? 'badge-info' : 'badge-pending'}`}>
-                                    {emp.status === 'approved' ? '✓ Approved' : emp.status === 'digilocker_verified' ? 'DigiLocker Verified' : emp.status || 'Pending'}
-                                  </span>
-                                </td>
-                                <td>
-                                  {hasLetter ? (
-                                    <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                      <CheckCircle2 size={13} /> Generated
+                                  </td>
+                                  <td>
+                                    <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-orange)', backgroundColor: 'rgba(200,146,42,0.1)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.85rem' }}>
+                                      {emp.short_code || (letter?.data?.candidateCode) || '—'}
                                     </span>
-                                  ) : (
-                                    <span className="badge" style={{ backgroundColor: 'rgba(100,116,139,0.15)', color: '#64748b' }}>
-                                      Not Generated
+                                  </td>
+                                  <td>
+                                    <p style={{ margin: 0, fontSize: '0.88rem', fontWeight: 500 }}>{emp.position || '—'}</p>
+                                  </td>
+                                  <td>
+                                    {isNew ? (
+                                      <span className="badge" style={{ backgroundColor: 'rgba(200,146,42,0.15)', color: '#c8922a', border: '1px solid rgba(200,146,42,0.3)', fontSize: '0.72rem' }}>
+                                        ✨ New Joiner
+                                      </span>
+                                    ) : (
+                                      <span className="badge" style={{ backgroundColor: 'rgba(100,116,139,0.12)', color: '#64748b', fontSize: '0.72rem' }}>
+                                        Already Joined
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    <span className={`badge ${emp.status === 'approved' ? 'badge-success' : emp.status === 'digilocker_verified' ? 'badge-info' : 'badge-pending'}`}>
+                                      {emp.status === 'approved' ? '✓ Approved' : emp.status === 'digilocker_verified' ? 'DigiLocker Verified' : emp.status || 'Pending'}
                                     </span>
-                                  )}
-                                </td>
-                                <td>
-                                  <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                                    {letter?.created_at ? new Date(letter.created_at).toLocaleDateString('en-IN') : '—'}
-                                  </span>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                                  </td>
+                                  <td>
                                     {hasLetter ? (
-                                      <>
-                                        <button
-                                          onClick={() => {
-                                            setSelectedOfferLetterEmployee(emp);
-                                            setSelectedOfferLetterData(letter.data);
-                                            setIsOfferLetterHrMode(false);
-                                            setIsOfferLetterModalOpen(true);
-                                          }}
-                                          className="btn btn-secondary"
-                                          style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                                          title="View, Print & Download"
-                                        >
-                                          <Eye size={14} /> View / Print
-                                        </button>
+                                      <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                        <CheckCircle2 size={13} /> Generated
+                                      </span>
+                                    ) : (
+                                      <span className="badge" style={{ backgroundColor: 'rgba(100,116,139,0.15)', color: '#64748b' }}>
+                                        Not Generated
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                      {letter?.created_at ? new Date(letter.created_at).toLocaleDateString('en-IN') : '—'}
+                                    </span>
+                                  </td>
+                                  <td style={{ textAlign: 'right' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                                      {hasLetter ? (
+                                        <>
+                                          <button
+                                            onClick={() => {
+                                              setSelectedOfferLetterEmployee(emp);
+                                              setSelectedOfferLetterData(letter.data);
+                                              setIsOfferLetterHrMode(false);
+                                              setIsOfferLetterModalOpen(true);
+                                            }}
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                            title="View, Print & Download"
+                                          >
+                                            <Eye size={14} /> View / Print
+                                          </button>
+                                          <button
+                                            onClick={() => openHrOfferLetterModal(emp)}
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
+                                            title="Edit details and regenerate"
+                                          >
+                                            Edit ✎
+                                          </button>
+                                        </>
+                                      ) : (
                                         <button
                                           onClick={() => openHrOfferLetterModal(emp)}
-                                          className="btn btn-secondary"
-                                          style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
-                                          title="Edit details and regenerate"
+                                          className="btn btn-primary"
+                                          style={{ fontSize: '0.75rem', padding: '0.35rem 0.85rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                                         >
-                                          Edit ✎
+                                          <Plus size={14} /> Generate
                                         </button>
-                                      </>
-                                    ) : (
-                                      <button
-                                        onClick={() => openHrOfferLetterModal(emp)}
-                                        className="btn btn-primary"
-                                        style={{ fontSize: '0.75rem', padding: '0.35rem 0.85rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                                      >
-                                        <Plus size={14} /> Generate
-                                      </button>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
           </div>
         </div>
@@ -4536,7 +4608,9 @@ const loadReimbursements = async (empId) => {
             
               <button onClick={() => { setAttendanceTab('reimbursement'); loadReimbursements(activeEmployee.id); }} style={attendanceTab === 'reimbursement' ? sidebarLinkActiveStyle : sidebarLinkStyle}><CreditCard size={18} /><span>Reimbursement</span></button>
               <button onClick={() => { setAttendanceTab('resignation'); loadEmployeeResignation(activeEmployee.id); }} style={attendanceTab === 'resignation' ? sidebarLinkActiveStyle : sidebarLinkStyle}><UserMinus size={18} /><span>Resignation</span></button>
-              <button onClick={() => { setAttendanceTab('offer-letter'); loadEmployeeOfferLetter(activeEmployee.id); }} style={attendanceTab === 'offer-letter' ? sidebarLinkActiveStyle : sidebarLinkStyle}><FileCheck size={18} /><span>Offer Letter</span></button>
+              {(isNewJoiner(activeEmployee) || myOfferLetter?.data) && (
+                <button onClick={() => { setAttendanceTab('offer-letter'); loadEmployeeOfferLetter(activeEmployee.id); }} style={attendanceTab === 'offer-letter' ? sidebarLinkActiveStyle : sidebarLinkStyle}><FileCheck size={18} /><span>Offer Letter</span></button>
+              )}
             </nav>
             <div style={sidebarUserStyle}>
               <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem' }}>{activeEmployee.full_name?.charAt(0)}</div>
@@ -4761,30 +4835,32 @@ const loadReimbursements = async (empId) => {
                   </div>
                 </div>
 
-                {/* Offer Letter Quick Access Card */}
-                <div className="glass-card" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', background: myOfferLetter?.data ? 'linear-gradient(135deg, rgba(200,146,42,0.1), rgba(200,146,42,0.02))' : 'var(--bg-secondary)', border: '1px solid rgba(200,146,42,0.25)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <div style={{ width: '44px', height: '44px', borderRadius: '10px', backgroundColor: 'rgba(200,146,42,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <FileCheck size={24} color="#c8922a" />
+                {/* Offer Letter Quick Access Card (New Joiners & Issued Letters Only) */}
+                {(isNewJoiner(activeEmployee) || myOfferLetter?.data) && (
+                  <div className="glass-card" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', background: myOfferLetter?.data ? 'linear-gradient(135deg, rgba(200,146,42,0.1), rgba(200,146,42,0.02))' : 'var(--bg-secondary)', border: '1px solid rgba(200,146,42,0.25)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div style={{ width: '44px', height: '44px', borderRadius: '10px', backgroundColor: 'rgba(200,146,42,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <FileCheck size={24} color="#c8922a" />
+                      </div>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Appointment Cum Offer Letter</h3>
+                        <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                          {myOfferLetter?.data ? 'Official 5-page employment contract with CTC computation issued.' : 'Awaiting HR generation and issuance.'}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Appointment Cum Offer Letter</h3>
-                      <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
-                        {myOfferLetter?.data ? 'Official 5-page employment contract with CTC computation issued.' : 'Awaiting HR generation and issuance.'}
-                      </p>
-                    </div>
+                    <button
+                      onClick={() => {
+                        setAttendanceTab('offer-letter');
+                        loadEmployeeOfferLetter(activeEmployee.id);
+                      }}
+                      className="btn btn-primary"
+                      style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
+                    >
+                      {myOfferLetter?.data ? 'View & Download Offer Letter ➔' : 'Check Offer Letter Status ➔'}
+                    </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      setAttendanceTab('offer-letter');
-                      loadEmployeeOfferLetter(activeEmployee.id);
-                    }}
-                    className="btn btn-primary"
-                    style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
-                  >
-                    {myOfferLetter?.data ? 'View & Download Offer Letter ➔' : 'Check Offer Letter Status ➔'}
-                  </button>
-                </div>
+                )}
 
                 <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
                   <h3 style={{ fontSize: '1rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>Onboarding Checklist</h3>
@@ -5559,7 +5635,7 @@ const loadReimbursements = async (empId) => {
                       <OfferLetterDocument data={myOfferLetter.data} />
                     </div>
                   </div>
-                ) : (
+                ) : isNewJoiner(activeEmployee) ? (
                   <div className="glass-card" style={{ textAlign: 'center', padding: '4rem 2rem', maxWidth: '650px', margin: '2rem auto' }}>
                     <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'rgba(200,146,42,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
                       <FileText size={32} color="#c8922a" />
@@ -5571,6 +5647,23 @@ const loadReimbursements = async (empId) => {
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 14px', borderRadius: '20px', backgroundColor: 'rgba(200,146,42,0.1)', color: 'var(--color-orange)', fontSize: '0.8rem', fontWeight: 600 }}>
                       ⏳ Status: Awaiting HR Issuance
                     </div>
+                  </div>
+                ) : (
+                  <div className="glass-card" style={{ textAlign: 'center', padding: '4rem 2rem', maxWidth: '650px', margin: '2rem auto' }}>
+                    <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+                      <CheckCircle2 size={32} color="#3b82f6" />
+                    </div>
+                    <h3 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '0.5rem' }}>Existing Employee Profile</h3>
+                    <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', lineHeight: 1.6, margin: '0 0 1.5rem' }}>
+                      Digital offer letter generation is configured for new joiners onwards. As an existing active employee, your profile, daily attendance, leave management, and payroll records are active in the system.
+                    </p>
+                    <button
+                      onClick={() => setAttendanceTab('overview')}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.85rem', padding: '0.5rem 1.25rem' }}
+                    >
+                      ← Back to Overview
+                    </button>
                   </div>
                 )}
               </div>
