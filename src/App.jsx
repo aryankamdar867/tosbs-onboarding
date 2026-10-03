@@ -2588,7 +2588,10 @@ const loadReimbursements = async (empId) => {
 
         validEmployees.forEach((emp, idx) => {
           const row = [idx + 1, (emp.full_name || 'EMPLOYEE').trim().toUpperCase()];
-          const doj = dojMap[emp.id] || null;
+          const rawDoj = dojMap[emp.id] || null;
+          // Legacy/pre-existing employees should not be marked NA for active months
+          const isPreExisting = emp.id?.startsWith('a1000001-') || (emp.created_at && new Date(emp.created_at) <= new Date(`${year}-${monthStr}-31`));
+          const doj = isPreExisting ? null : rawDoj;
 
           for (let d = 1; d <= daysInMonth; d++) {
             const dateStr = `${year}-${monthStr}-${String(d).padStart(2, '0')}`;
@@ -2625,7 +2628,7 @@ const loadReimbursements = async (empId) => {
               // Sunday
               row.push('');
             } else if (doj && dateStr < doj) {
-              // Before official Date of Joining
+              // Before official Date of Joining for future onboarding candidates
               row.push('NA');
             } else if (dateStr <= todayStr) {
               row.push('A');
