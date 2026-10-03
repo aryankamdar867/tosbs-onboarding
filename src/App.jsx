@@ -5,6 +5,7 @@ import LineChart from './components/LineChart';
 import DigiLockerModal from './components/DigiLockerModal';
 import OfferLetterModal from './components/OfferLetterModal';
 import OfferLetterDocument from './components/OfferLetterDocument';
+import PayslipModal from './components/PayslipModal';
 import { saveAs } from "file-saver";
 import {
   Users, UserCheck, ShieldAlert, Award,
@@ -151,6 +152,10 @@ function App() {
   const [myOfferLetter, setMyOfferLetter] = useState(null);
   const [offerLetterSearch, setOfferLetterSearch] = useState('');
   const [offerLetterFilter, setOfferLetterFilter] = useState('new_joiners'); // 'new_joiners' | 'pending' | 'issued' | 'all'
+
+  // Payslip Modal State
+  const [isPayslipModalOpen, setIsPayslipModalOpen] = useState(false);
+  const [selectedPayslipData, setSelectedPayslipData] = useState({ emp: null, breakdown: null, monthStr: '' });
 
   // HR Notes State
   const [hrNotes, setHrNotes] = useState([]);
@@ -1543,62 +1548,24 @@ const handleHrLogin = (e) => {
 
   const downloadEmployeePayslip = async (emp, breakdown, monthStr) => {
     try {
-      if (!breakdown) {
+      if (!breakdown || !emp) {
         alert('No salary calculation available for this month.');
         return;
       }
 
-      const { data: details } = await supabase.from('employee_details').select('*').eq('employee_id', emp.id).maybeSingle();
-      const { data: verification } = await supabase.from('digilocker_verifications').select('*').eq('employee_id', emp.id).maybeSingle();
+      let empWithDetails = { ...emp };
+      try {
+        const { data: details } = await supabase.from('employee_details').select('*').eq('employee_id', emp.id).maybeSingle();
+        if (details) {
+          empWithDetails = { ...empWithDetails, ...details };
+        }
+      } catch (e) {}
 
-      const monthName = new Date(monthStr + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
-
-      const workbook = XLSX.utils.book_new();
-      const payslipRows = [
-        ["THE ONE STOP BUSINESS SOLUTION (TOSBS)"],
-        [`SALARY SLIP FOR ${monthName.toUpperCase()}`],
-        [],
-        ["EMPLOYEE DETAILS", "", "BANK & TAX DETAILS", ""],
-        ["Employee Name:", emp.full_name, "Bank Name:", details?.bank_name || "—"],
-        ["Employee ID:", emp.id, "Account Number:", details?.account_number || "—"],
-        ["Designation:", emp.position || "—", "IFSC Code:", details?.ifsc_code || "—"],
-        ["Email:", emp.email, "PAN Number:", verification?.pan_number || "—"],
-        ["Date of Joining:", details?.date_of_joining || "—", "UAN Number:", details?.uan_number || "—"],
-        [],
-        ["ATTENDANCE SUMMARY", "", "", ""],
-        ["Days in Month:", breakdown.daysInMonth, "Present Days:", breakdown.presentDays],
-        ["Working Days:", breakdown.workingDaysInMonth, "Half Days:", breakdown.halfDays],
-        ["Paid Leaves / Holidays:", breakdown.leaveDays + breakdown.holidayDays, "Absent Days:", breakdown.absentDays],
-        ["Free Leave Allowance:", `${breakdown.freeLeaveAllowance} days`, "Billable Absents:", `${breakdown.billableAbsents} days`],
-        ["Sandwich Penalty Days:", `${breakdown.sandwichPenaltyDays} day(s)`, "Sunday Worked:", `${breakdown.sundayWorkedDays} day(s)`],
-        [],
-        ["SALARY & EARNINGS", "AMOUNT (₹)", "DEDUCTIONS", "AMOUNT (₹)"],
-        ["Monthly CTC / Gross Salary", breakdown.monthlyCtc, "Absence & Half-Day Deduction", parseFloat(((breakdown.billableAbsents * breakdown.perDayRate) + (breakdown.halfDays * breakdown.perDayRate * 0.5)).toFixed(2))],
-        ["Overtime Pay", breakdown.overtimePay || 0, "Sandwich Rule Penalty", parseFloat((breakdown.sandwichPenaltyDays * breakdown.perDayRate).toFixed(2))],
-        [],
-        ["TOTAL GROSS PAY (₹):", breakdown.monthlyCtc + (breakdown.overtimePay || 0), "TOTAL DEDUCTIONS (₹):", breakdown.deduction],
-        [],
-        ["NET SALARY PAYABLE (₹):", breakdown.netSalary, "", ""],
-        [],
-        ["Note: This is a computer-generated salary slip from TOSBS Workforce Portal."],
-      ];
-
-      const worksheet = XLSX.utils.aoa_to_sheet(payslipRows);
-      worksheet["!cols"] = [
-        { wch: 28 },
-        { wch: 25 },
-        { wch: 28 },
-        { wch: 25 }
-      ];
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Payslip");
-
-      const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-      const blob = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8" });
-      const safeName = (emp.full_name || "Employee").replace(/[^a-z0-9]/gi, "_");
-      saveAs(blob, `TOSBS_Payslip_${safeName}_${monthStr}.xlsx`);
+      setSelectedPayslipData({ emp: empWithDetails, breakdown, monthStr });
+      setIsPayslipModalOpen(true);
     } catch (err) {
       console.error(err);
-      alert('Unable to download salary slip.');
+      alert('Unable to open salary slip.');
     }
   };
 
@@ -3512,6 +3479,18 @@ const loadReimbursements = async (empId) => {
                         ℹ️ {salaryBreakdown.sundayWorkedDays} Sunday(s) worked this month. Compensatory off to be approved by HR separately.
                       </div>
                     )}
+                    <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end' }}>
+                      <button
+                        onClick={() => {
+                          const targetEmp = employees.find(e => e.id === hrSalaryEmployee);
+                          if (targetEmp) downloadEmployeePayslip(targetEmp, salaryBreakdown, salaryMonth);
+                        }}
+                        className="btn btn-primary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                      >
+                        <FileText size={16} /> Download Payslip (PDF)
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -5758,7 +5737,7 @@ const loadReimbursements = async (empId) => {
                               className="btn btn-primary"
                               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.25rem', fontSize: '0.85rem' }}
                             >
-                              <FileText size={16} /> Download Payslip (.xlsx)
+                              <FileText size={16} /> Download Payslip (PDF)
                             </button>
                           ) : (
                             <button
@@ -6317,6 +6296,17 @@ const loadReimbursements = async (empId) => {
           offerData={selectedOfferLetterData}
           isHrMode={isOfferLetterHrMode}
           onSaveOfferLetter={handleSaveOfferLetter}
+        />
+      )}
+
+      {/* PAYSLIP MODAL */}
+      {isPayslipModalOpen && (
+        <PayslipModal
+          isOpen={isPayslipModalOpen}
+          onClose={() => setIsPayslipModalOpen(false)}
+          emp={selectedPayslipData.emp}
+          breakdown={selectedPayslipData.breakdown}
+          monthStr={selectedPayslipData.monthStr}
         />
       )}
     </div>
