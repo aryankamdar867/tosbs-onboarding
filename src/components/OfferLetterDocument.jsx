@@ -18,13 +18,14 @@ export const OfferLetterDocument = ({ data, id = 'tosbs-offer-letter-doc' }) => 
 
   const probationPeriod = data.probationPeriod || '3 months';
   const includeTds = Boolean(data.includeTds);
+
+  const monthlyVal = Math.round(Number(monthlyCtc) || Math.round(Number(annualCtc) / 12) || 0);
+  const annualVal = Math.round(Number(annualCtc) || monthlyVal * 12 || 0);
+
   const annualTds = Math.round(annualVal * 0.02);
   const monthlyTds = Math.round(monthlyVal * 0.02);
   const annualNet = annualVal - annualTds;
   const monthlyNet = monthlyVal - monthlyTds;
-
-  const monthlyVal = Math.round(Number(monthlyCtc) || Math.round(Number(annualCtc) / 12) || 0);
-  const annualVal = Math.round(Number(annualCtc) || monthlyVal * 12 || 0);
 
   const monthlyWords = numberToWordsIndian(monthlyVal);
   const annualWords = numberToWordsIndian(annualVal);

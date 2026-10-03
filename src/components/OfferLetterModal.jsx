@@ -43,9 +43,14 @@ export const OfferLetterModal = ({
 
   useEffect(() => {
     if (effectiveOfferData) {
+      const annual = Number(effectiveOfferData.annualCtc) || (Number(effectiveOfferData.monthlyCtc) ? effectiveOfferData.monthlyCtc * 12 : 600000);
+      const monthly = Number(effectiveOfferData.monthlyCtc) || Math.round(annual / 12);
+
       setFormData(prev => ({
         ...prev,
         ...effectiveOfferData,
+        annualCtc: annual,
+        monthlyCtc: monthly,
         probationPeriod: effectiveOfferData.probationPeriod || prev.probationPeriod || '3 months',
         includeTds: effectiveOfferData.includeTds !== undefined ? effectiveOfferData.includeTds : prev.includeTds,
         fullName: effectiveOfferData.fullName || effectiveOfferData.candidateName || prev.fullName,
