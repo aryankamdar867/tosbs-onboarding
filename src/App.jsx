@@ -2069,7 +2069,7 @@ const loadReimbursements = async (empId) => {
   };
 
   const handleApproveResignation = async (resignationId, employeeId, noticeDays, startDate, hrNote = '') => {
-    const days = parseInt(noticeDays) || 30;
+    const days = (noticeDays !== undefined && noticeDays !== null && noticeDays !== '' && !isNaN(parseInt(noticeDays))) ? parseInt(noticeDays) : 30;
     const start = startDate || new Date().toISOString().split('T')[0];
     const startD = new Date(start);
     const endD = new Date(startD);
@@ -2090,15 +2090,19 @@ const loadReimbursements = async (empId) => {
 
       // Notify employee
       try {
+        const noticeDesc = days === 0 ? 'Immediate Exit (0 Days Notice)' : `${days} Days Notice (from ${start} to ${endDate})`;
         await supabase.from('notifications').insert({
           employee_id: employeeId,
           title: '📋 Resignation Approved & Notice Period Assigned',
-          message: `Your resignation has been approved. Notice period: ${days} days (from ${start} to ${endDate}). Normal salary will be processed during your notice period.`,
+          message: `Your resignation has been approved. Notice period: ${noticeDesc}.`,
           is_announcement: false,
         });
       } catch (ne) { console.error('Notify emp failed:', ne); }
 
-      alert(`Resignation approved! Notice period set to ${days} days (Ends on ${endDate}). Account will auto-deactivate 5 days after notice ends.`);
+      alert(days === 0
+        ? `Resignation approved! Immediate exit assigned (Last Working Day: ${endDate}). Account will auto-deactivate 5 days after.`
+        : `Resignation approved! Notice period set to ${days} days (Ends on ${endDate}). Account will auto-deactivate 5 days after notice ends.`
+      );
       loadHrResignations();
       loadEmployees();
     } catch (err) {
@@ -3783,10 +3787,12 @@ const loadReimbursements = async (empId) => {
                                 <p style={detailLabelStyle}>Applied On</p>
                                 <p style={detailValueStyle}>{r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN') : '—'}</p>
                               </div>
-                              {r.notice_period_days && (
+                              {r.notice_period_days !== undefined && r.notice_period_days !== null && (
                                 <div>
                                   <p style={detailLabelStyle}>Approved Notice Period</p>
-                                  <p style={{ ...detailValueStyle, color: 'var(--color-orange)', fontWeight: 700 }}>{r.notice_period_days} Days</p>
+                                  <p style={{ ...detailValueStyle, color: r.notice_period_days === 0 ? '#ef4444' : 'var(--color-orange)', fontWeight: 700 }}>
+                                    {r.notice_period_days === 0 ? '⚡ Immediate (0 Days)' : `${r.notice_period_days} Days`}
+                                  </p>
                                 </div>
                               )}
                             </div>
@@ -3876,20 +3882,27 @@ const loadReimbursements = async (empId) => {
                               <div style={{ marginBottom: '0.75rem' }}>
                                 <label className="form-label" style={{ fontSize: '0.75rem' }}>Notice Period Duration (Days)</label>
                                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                                  {[15, 30, 45, 60, 90].map(days => (
+                                  {[
+                                    { label: '⚡ Immediate (0d)', days: 0 },
+                                    { label: '15 Days', days: 15 },
+                                    { label: '30 Days', days: 30 },
+                                    { label: '45 Days', days: 45 },
+                                    { label: '60 Days', days: 60 },
+                                    { label: '90 Days', days: 90 }
+                                  ].map(item => (
                                     <button
-                                      key={days}
+                                      key={item.days}
                                       type="button"
                                       onClick={() => {
                                         setHrResignActions(prev => ({
                                           ...prev,
-                                          [r.id]: { ...(prev[r.id] || currentAction), notice_period_days: days }
+                                          [r.id]: { ...(prev[r.id] || currentAction), notice_period_days: item.days }
                                         }));
                                       }}
-                                      className={currentAction.notice_period_days === days ? 'btn btn-primary' : 'btn btn-secondary'}
+                                      className={currentAction.notice_period_days === item.days ? 'btn btn-primary' : 'btn btn-secondary'}
                                       style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
                                     >
-                                      {days} Days
+                                      {item.label}
                                     </button>
                                   ))}
                                 </div>
@@ -3898,12 +3911,12 @@ const loadReimbursements = async (empId) => {
                                     <label className="form-label" style={{ fontSize: '0.72rem' }}>Custom Notice Days</label>
                                     <input
                                       type="number"
-                                      min="1"
+                                      min="0"
                                       max="180"
                                       className="form-input"
-                                      value={currentAction.notice_period_days}
+                                      value={currentAction.notice_period_days !== undefined ? currentAction.notice_period_days : 30}
                                       onChange={(e) => {
-                                        const val = parseInt(e.target.value) || 0;
+                                        const val = e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value) || 0);
                                         setHrResignActions(prev => ({
                                           ...prev,
                                           [r.id]: { ...(prev[r.id] || currentAction), notice_period_days: val }
@@ -3932,12 +3945,14 @@ const loadReimbursements = async (empId) => {
 
                               {/* Calculated End Date Preview */}
                               {(() => {
+                                const nDays = (currentAction.notice_period_days !== undefined && currentAction.notice_period_days !== null && !isNaN(parseInt(currentAction.notice_period_days))) ? parseInt(currentAction.notice_period_days) : 30;
                                 const sDate = new Date(currentAction.notice_start_date || todayStr);
                                 const eDate = new Date(sDate);
-                                eDate.setDate(eDate.getDate() + (parseInt(currentAction.notice_period_days) || 30));
+                                eDate.setDate(eDate.getDate() + nDays);
+                                const lastDayStr = eDate.toISOString().split('T')[0];
                                 return (
-                                  <div style={{ marginBottom: '0.75rem', padding: '0.5rem 0.75rem', backgroundColor: 'rgba(59,130,246,0.06)', borderRadius: '6px', fontSize: '0.78rem', color: '#1e40af' }}>
-                                    📅 <strong>Calculated Last Working Day:</strong> {eDate.toISOString().split('T')[0]} (Account will auto-deactivate 5 days later)
+                                  <div style={{ marginBottom: '0.75rem', padding: '0.5rem 0.75rem', backgroundColor: nDays === 0 ? 'rgba(239,68,68,0.08)' : 'rgba(59,130,246,0.06)', borderRadius: '6px', fontSize: '0.78rem', color: nDays === 0 ? '#b91c1c' : '#1e40af', border: nDays === 0 ? '1px solid rgba(239,68,68,0.2)' : 'none' }}>
+                                    📅 <strong>{nDays === 0 ? '⚡ Immediate Exit (0 Days Notice):' : 'Calculated Last Working Day:'}</strong> {lastDayStr} {nDays === 0 ? '(Last Day Today)' : ''} (Account will auto-deactivate 5 days later)
                                   </div>
                                 );
                               })()}
@@ -6074,8 +6089,8 @@ const loadReimbursements = async (empId) => {
                           </div>
                           <div style={{ textAlign: 'right' }}>
                             <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Notice Duration</span>
-                            <h3 style={{ margin: '2px 0 0', fontSize: '1.3rem', fontWeight: 800, color: 'var(--color-orange)' }}>
-                              {myResignation.notice_period_days} Days
+                            <h3 style={{ margin: '2px 0 0', fontSize: '1.3rem', fontWeight: 800, color: myResignation.notice_period_days === 0 ? '#ef4444' : 'var(--color-orange)' }}>
+                              {myResignation.notice_period_days === 0 ? '⚡ Immediate (0 Days)' : `${myResignation.notice_period_days} Days`}
                             </h3>
                           </div>
                         </div>
