@@ -11,7 +11,8 @@ import {
   Plus, Search, Copy, Check, X, Clock, Eye, Trash2,
   LogOut, LayoutDashboard, FileText, CheckCircle2,
   Lock, ArrowRight, MapPin, Building, CreditCard, Bell, CalendarDays, Gift,
-  UserMinus, AlertCircle, Calendar, FileCheck, Printer, Download
+  UserMinus, AlertCircle, Calendar, FileCheck, Printer, Download,
+  StickyNote, Pin, Tag, Edit3
 } from 'lucide-react';
 // Festival calendar — auto-checked against today's date, no manual entry needed.
 // Fixed-date festivals repeat every year. Movable ones (Holi, Eid, Diwali, etc.)
@@ -151,6 +152,24 @@ function App() {
   const [offerLetterSearch, setOfferLetterSearch] = useState('');
   const [offerLetterFilter, setOfferLetterFilter] = useState('new_joiners'); // 'new_joiners' | 'pending' | 'issued' | 'all'
 
+  // HR Notes State
+  const [hrNotes, setHrNotes] = useState([]);
+  const [hrNotesLoading, setHrNotesLoading] = useState(false);
+  const [hrNotesSearch, setHrNotesSearch] = useState('');
+  const [hrNotesCategoryFilter, setHrNotesCategoryFilter] = useState('all');
+  const [hrNotesPriorityFilter, setHrNotesPriorityFilter] = useState('all');
+  const [showAddNoteModal, setShowAddNoteModal] = useState(false);
+  const [editingNote, setEditingNote] = useState(null);
+  const [noteForm, setNoteForm] = useState({
+    title: '',
+    content: '',
+    category: 'General',
+    employee_id: '',
+    priority: 'normal',
+    is_pinned: false,
+    tags: ''
+  });
+
   // Attendance state
   const [attendanceTab, setAttendanceTab] = useState('overview');
   const [showWfhOption, setShowWfhOption] = useState(false);
@@ -279,7 +298,7 @@ function App() {
     } catch (err) { console.error('Error loading employees:', err); }
   };
 
-  useEffect(() => { if (hrUser) { loadEmployees(); loadAllOfferLetters(); } }, [hrUser]);
+  useEffect(() => { if (hrUser) { loadEmployees(); loadAllOfferLetters(); loadHrNotes(); } }, [hrUser]);
 
   const validateInviteToken = async (tokenInput) => {
     if (!tokenInput) return;
@@ -2226,6 +2245,157 @@ const loadReimbursements = async (empId) => {
     }
   };
 
+  const loadHrNotes = async () => {
+    setHrNotesLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('employee_documents')
+        .select('*')
+        .eq('document_type', 'hr_note')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const parsedNotes = (data || []).map(doc => {
+        let noteData = {};
+        try {
+          noteData = typeof doc.file_url === 'string' && doc.file_url.startsWith('{')
+            ? JSON.parse(doc.file_url)
+            : { title: doc.file_name || 'HR Note', content: doc.file_url || '' };
+        } catch (e) {
+          noteData = { title: doc.file_name || 'HR Note', content: doc.file_url || '' };
+        }
+        return {
+          id: doc.id,
+          employee_id: doc.employee_id,
+          title: noteData.title || doc.file_name || 'Untitled Note',
+          content: noteData.content || '',
+          category: noteData.category || 'General',
+          priority: noteData.priority || 'normal',
+          is_pinned: !!noteData.is_pinned,
+          tags: Array.isArray(noteData.tags) ? noteData.tags : (typeof noteData.tags === 'string' && noteData.tags ? noteData.tags.split(',').map(t => t.trim()) : []),
+          created_at: doc.uploaded_at || doc.created_at,
+          updated_at: noteData.updated_at || doc.uploaded_at || doc.created_at,
+          created_by: noteData.created_by || 'HR Admin'
+        };
+      });
+
+      setHrNotes(parsedNotes);
+    } catch (err) {
+      console.error('Error loading HR notes:', err);
+    } finally {
+      setHrNotesLoading(false);
+    }
+  };
+
+  const handleSaveHrNote = async (e) => {
+    if (e) e.preventDefault();
+    if (!noteForm.title.trim() || !noteForm.content.trim()) {
+      alert('Please fill in both title and content for the note.');
+      return;
+    }
+
+    const notePayload = {
+      title: noteForm.title.trim(),
+      content: noteForm.content.trim(),
+      category: noteForm.category || 'General',
+      priority: noteForm.priority || 'normal',
+      is_pinned: !!noteForm.is_pinned,
+      tags: typeof noteForm.tags === 'string'
+        ? noteForm.tags.split(',').map(t => t.trim()).filter(Boolean)
+        : (noteForm.tags || []),
+      created_by: hrUser?.email || 'HR Admin',
+      updated_at: new Date().toISOString()
+    };
+
+    const empIdToUse = noteForm.employee_id || (employees && employees.length > 0 ? employees[0].id : null);
+
+    try {
+      if (editingNote) {
+        const { error } = await supabase
+          .from('employee_documents')
+          .update({
+            employee_id: empIdToUse,
+            file_name: notePayload.title,
+            file_url: JSON.stringify(notePayload)
+          })
+          .eq('id', editingNote.id);
+
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('employee_documents')
+          .insert({
+            employee_id: empIdToUse,
+            document_type: 'hr_note',
+            file_name: notePayload.title,
+            file_url: JSON.stringify(notePayload)
+          });
+
+        if (error) throw error;
+      }
+
+      setShowAddNoteModal(false);
+      setEditingNote(null);
+      setNoteForm({
+        title: '',
+        content: '',
+        category: 'General',
+        employee_id: '',
+        priority: 'normal',
+        is_pinned: false,
+        tags: ''
+      });
+      loadHrNotes();
+    } catch (err) {
+      console.error('Error saving HR note:', err);
+      alert('Failed to save HR note: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  const handleDeleteHrNote = async (noteId) => {
+    if (!window.confirm('Are you sure you want to delete this confidential HR note?')) return;
+    try {
+      const { error } = await supabase
+        .from('employee_documents')
+        .delete()
+        .eq('id', noteId);
+
+      if (error) throw error;
+      setHrNotes(prev => prev.filter(n => n.id !== noteId));
+    } catch (err) {
+      console.error('Error deleting HR note:', err);
+      alert('Failed to delete note: ' + err.message);
+    }
+  };
+
+  const handleTogglePinNote = async (note) => {
+    const updatedPayload = {
+      title: note.title,
+      content: note.content,
+      category: note.category,
+      priority: note.priority,
+      is_pinned: !note.is_pinned,
+      tags: note.tags,
+      created_by: note.created_by,
+      updated_at: new Date().toISOString()
+    };
+
+    try {
+      const { error } = await supabase
+        .from('employee_documents')
+        .update({
+          file_url: JSON.stringify(updatedPayload)
+        })
+        .eq('id', note.id);
+
+      if (error) throw error;
+      setHrNotes(prev => prev.map(n => n.id === note.id ? { ...n, is_pinned: !n.is_pinned } : n));
+    } catch (err) {
+      console.error('Error updating pin status:', err);
+    }
+  };
+
   const loadEmployeeOfferLetter = async (empId) => {
     if (!empId) return;
     try {
@@ -2877,6 +3047,9 @@ const loadReimbursements = async (empId) => {
               <button onClick={() => { setHrActiveTab('offer-letters'); loadAllOfferLetters(); }} style={hrActiveTab === 'offer-letters' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <FileCheck size={18} /><span>Offer Letters</span>
               </button>
+              <button onClick={() => { setHrActiveTab('notes'); loadHrNotes(); }} style={hrActiveTab === 'notes' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+                <StickyNote size={18} /><span>HR Notes</span>
+              </button>
               <button onClick={() => { setShowAnnouncement(!showAnnouncement); setAnnouncementSuccessMsg(''); }} style={sidebarLinkStyle}>
                 <Bell size={18} /><span>Announce</span>
               </button>
@@ -2980,7 +3153,7 @@ const loadReimbursements = async (empId) => {
             <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
               <div>
                 <h1 style={{ fontSize: '2rem', fontWeight: 800 }}>
-                  {hrActiveTab === 'analytics' ? 'HR Dashboard' : hrActiveTab === 'attendance' ? 'Attendance Records' : hrActiveTab === 'leaves' ? 'Leave Requests' : hrActiveTab === 'salary' ? 'Salary & Payroll' : hrActiveTab === 'reimbursements' ? 'Reimbursements' : hrActiveTab === 'resignations' ? 'Resignations & Offboarding' : hrActiveTab === 'offer-letters' ? 'Offer Letters & Contracts' : 'Employee Profiles'}
+                  {hrActiveTab === 'analytics' ? 'HR Dashboard' : hrActiveTab === 'attendance' ? 'Attendance Records' : hrActiveTab === 'leaves' ? 'Leave Requests' : hrActiveTab === 'salary' ? 'Salary & Payroll' : hrActiveTab === 'reimbursements' ? 'Reimbursements' : hrActiveTab === 'resignations' ? 'Resignations & Offboarding' : hrActiveTab === 'offer-letters' ? 'Offer Letters & Contracts' : hrActiveTab === 'notes' ? 'Confidential HR Notes' : 'Employee Profiles'}
                 </h1>
                 <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
                   {hrActiveTab === 'analytics' ? 'Real-time workforce efficiency and onboarding tracking metrics.'
@@ -2990,6 +3163,7 @@ const loadReimbursements = async (empId) => {
                     : hrActiveTab === 'reimbursements' ? 'Review and process employee expense claims.'
                     : hrActiveTab === 'resignations' ? 'Manage employee resignation requests, notice periods, and automated 5-day deactivation.'
                     : hrActiveTab === 'offer-letters' ? 'Generate, customize, and manage official TOSBS appointment and offer letters with CTC Annexure.'
+                    : hrActiveTab === 'notes' ? 'Internal confidential HR memos, employee notes, and policy logs.'
                     : 'Manage registrations and monitor your global human capital pipelines.'}
                 </p>
               </div>
@@ -2997,6 +3171,13 @@ const loadReimbursements = async (empId) => {
                 <div style={{ display: 'flex', gap: '0.75rem' }}>
                   <button onClick={exportEmployeeMasterSheet} className="btn btn-secondary"><FileText size={16} /> Master Sheet</button>
                   <button onClick={() => setIsAddingEmployee(true)} className="btn btn-primary"><Plus size={18} /> Add Employee</button>
+                </div>
+              )}
+              {hrActiveTab === 'notes' && (
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button onClick={() => { setEditingNote(null); setNoteForm({ title: '', content: '', category: 'General', employee_id: '', priority: 'normal', is_pinned: false, tags: '' }); setShowAddNoteModal(true); }} className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Plus size={18} /> Create HR Note
+                  </button>
                 </div>
               )}
             </header>
@@ -4059,6 +4240,434 @@ const loadReimbursements = async (empId) => {
                       </table>
                     </div>
                   </div>
+                </div>
+              );
+            })()}
+
+            {hrActiveTab === 'notes' && (() => {
+              const filteredNotes = hrNotes.filter(note => {
+                const searchLower = hrNotesSearch.toLowerCase().trim();
+                const matchedEmp = employees.find(e => e.id === note.employee_id);
+                const empName = matchedEmp ? matchedEmp.full_name.toLowerCase() : '';
+
+                const matchesSearch = !searchLower || (
+                  note.title.toLowerCase().includes(searchLower) ||
+                  note.content.toLowerCase().includes(searchLower) ||
+                  note.category.toLowerCase().includes(searchLower) ||
+                  empName.includes(searchLower) ||
+                  (Array.isArray(note.tags) && note.tags.some(t => t.toLowerCase().includes(searchLower)))
+                );
+
+                const matchesCategory = hrNotesCategoryFilter === 'all' || note.category === hrNotesCategoryFilter;
+                const matchesPriority = hrNotesPriorityFilter === 'all' || note.priority === hrNotesPriorityFilter;
+
+                return matchesSearch && matchesCategory && matchesPriority;
+              });
+
+              const sortedNotes = [...filteredNotes].sort((a, b) => {
+                if (a.is_pinned && !b.is_pinned) return -1;
+                if (!a.is_pinned && b.is_pinned) return 1;
+                return new Date(b.created_at) - new Date(a.created_at);
+              });
+
+              const totalNotes = hrNotes.length;
+              const pinnedCount = hrNotes.filter(n => n.is_pinned).length;
+              const highPriorityCount = hrNotes.filter(n => n.priority === 'high' || n.priority === 'urgent').length;
+
+              const categoriesList = ['General', 'Performance', 'Disciplinary', 'Interview', 'Policy', 'Onboarding', 'Offboarding', 'Salary/Bonus', 'Other'];
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  {/* Stats Overview Header */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                    <div className="glass-card" style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
+                        <StickyNote size={22} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Notes</div>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 700 }}>{totalNotes}</div>
+                      </div>
+                    </div>
+                    <div className="glass-card" style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(234, 179, 8, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#eab308' }}>
+                        <Pin size={22} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Pinned Memos</div>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 700 }}>{pinnedCount}</div>
+                      </div>
+                    </div>
+                    <div className="glass-card" style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(239, 68, 68, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444' }}>
+                        <ShieldAlert size={22} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>High / Urgent</div>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 700 }}>{highPriorityCount}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Search and Filters Toolbar */}
+                  <div className="glass-card" style={{ padding: '1rem 1.25rem', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', gap: '0.75rem', flex: 1, minWidth: '280px' }}>
+                      <div style={{ position: 'relative', flex: 1 }}>
+                        <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)' }} />
+                        <input
+                          type="text"
+                          placeholder="Search notes by title, content, employee, or #tag..."
+                          value={hrNotesSearch}
+                          onChange={(e) => setHrNotesSearch(e.target.value)}
+                          className="form-input"
+                          style={{ paddingLeft: '36px', fontSize: '0.85rem' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                      <select
+                        value={hrNotesCategoryFilter}
+                        onChange={(e) => setHrNotesCategoryFilter(e.target.value)}
+                        className="form-input"
+                        style={{ fontSize: '0.85rem', width: 'auto' }}
+                      >
+                        <option value="all">All Categories</option>
+                        {categoriesList.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={hrNotesPriorityFilter}
+                        onChange={(e) => setHrNotesPriorityFilter(e.target.value)}
+                        className="form-input"
+                        style={{ fontSize: '0.85rem', width: 'auto' }}
+                      >
+                        <option value="all">All Priorities</option>
+                        <option value="urgent">Urgent</option>
+                        <option value="high">High</option>
+                        <option value="normal">Normal</option>
+                        <option value="low">Low</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Notes Grid Display */}
+                  {hrNotesLoading ? (
+                    <div className="glass-card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+                      Loading confidential HR notes...
+                    </div>
+                  ) : sortedNotes.length === 0 ? (
+                    <div className="glass-card" style={{ padding: '3rem 2rem', textAlign: 'center' }}>
+                      <StickyNote size={48} style={{ color: 'var(--color-text-secondary)', opacity: 0.5, marginBottom: '1rem' }} />
+                      <h3 style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>No HR Notes Found</h3>
+                      <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', maxWidth: '400px', margin: '0 auto 1.5rem' }}>
+                        {hrNotesSearch || hrNotesCategoryFilter !== 'all' || hrNotesPriorityFilter !== 'all'
+                          ? 'No notes match your current filter or search criteria.'
+                          : 'Create your first confidential HR note or internal memo.'}
+                      </p>
+                      <button
+                        onClick={() => {
+                          setEditingNote(null);
+                          setNoteForm({ title: '', content: '', category: 'General', employee_id: '', priority: 'normal', is_pinned: false, tags: '' });
+                          setShowAddNoteModal(true);
+                        }}
+                        className="btn btn-primary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <Plus size={16} /> Create HR Note
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
+                      {sortedNotes.map(note => {
+                        const linkedEmp = employees.find(e => e.id === note.employee_id);
+
+                        const priorityColor = note.priority === 'urgent' ? '#ef4444'
+                          : note.priority === 'high' ? '#f97316'
+                          : note.priority === 'low' ? '#6b7280'
+                          : '#3b82f6';
+
+                        return (
+                          <div
+                            key={note.id}
+                            className="glass-card"
+                            style={{
+                              position: 'relative',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justify: 'space-between',
+                              padding: '1.25rem',
+                              border: note.is_pinned ? '1px solid rgba(234, 179, 8, 0.5)' : '1px solid var(--border-color)',
+                              backgroundColor: note.is_pinned ? 'rgba(234, 179, 8, 0.03)' : undefined,
+                              transition: 'all 0.2s ease'
+                            }}
+                          >
+                            <div>
+                              {/* Header Pill Badges & Pin Button */}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+                                <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <span style={{
+                                    fontSize: '0.7rem',
+                                    fontWeight: 600,
+                                    padding: '0.2rem 0.55rem',
+                                    borderRadius: '12px',
+                                    backgroundColor: 'rgba(200, 146, 42, 0.15)',
+                                    color: 'var(--color-primary)',
+                                    border: '1px solid rgba(200, 146, 42, 0.3)'
+                                  }}>
+                                    {note.category}
+                                  </span>
+
+                                  <span style={{
+                                    fontSize: '0.65rem',
+                                    fontWeight: 700,
+                                    textTransform: 'uppercase',
+                                    padding: '0.15rem 0.45rem',
+                                    borderRadius: '10px',
+                                    backgroundColor: `${priorityColor}20`,
+                                    color: priorityColor,
+                                    border: `1px solid ${priorityColor}40`
+                                  }}>
+                                    {note.priority}
+                                  </span>
+                                </div>
+
+                                <button
+                                  onClick={() => handleTogglePinNote(note)}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    color: note.is_pinned ? '#eab308' : 'var(--color-text-secondary)',
+                                    padding: '4px',
+                                    display: 'flex',
+                                    alignItems: 'center'
+                                  }}
+                                  title={note.is_pinned ? 'Unpin note' : 'Pin note to top'}
+                                >
+                                  <Pin size={16} fill={note.is_pinned ? '#eab308' : 'none'} />
+                                </button>
+                              </div>
+
+                              {/* Note Title */}
+                              <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '0.5rem', color: '#fff' }}>
+                                {note.title}
+                              </h3>
+
+                              {/* Linked Employee Identifier */}
+                              {linkedEmp && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', padding: '0.4rem 0.6rem', borderRadius: '6px', backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
+                                  <div className="avatar-circle" style={{ width: '22px', height: '22px', fontSize: '0.65rem' }}>
+                                    {linkedEmp.full_name?.charAt(0)}
+                                  </div>
+                                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                                    {linkedEmp.full_name}
+                                  </span>
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--color-text-secondary)', marginLeft: 'auto' }}>
+                                    {linkedEmp.position || 'Employee'}
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Note Content Text */}
+                              <div style={{
+                                fontSize: '0.85rem',
+                                color: 'rgba(255, 255, 255, 0.85)',
+                                lineHeight: '1.5',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                marginBottom: '1rem',
+                                maxHeight: '180px',
+                                overflowY: 'auto',
+                                paddingRight: '4px'
+                              }}>
+                                {note.content}
+                              </div>
+
+                              {/* Tags Chips */}
+                              {Array.isArray(note.tags) && note.tags.length > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '1rem' }}>
+                                  {note.tags.map((tag, idx) => (
+                                    <span key={idx} style={{ fontSize: '0.7rem', color: 'var(--color-text-secondary)', backgroundColor: 'rgba(255,255,255,0.05)', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
+                                      #{tag.replace(/^#/, '')}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Card Footer Info & Actions */}
+                            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', marginTop: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ fontSize: '0.7rem', color: 'var(--color-text-secondary)' }}>
+                                {new Date(note.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} • {note.created_by.split('@')[0]}
+                              </div>
+
+                              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                <button
+                                  onClick={() => {
+                                    setEditingNote(note);
+                                    setNoteForm({
+                                      title: note.title,
+                                      content: note.content,
+                                      category: note.category,
+                                      employee_id: note.employee_id || '',
+                                      priority: note.priority,
+                                      is_pinned: note.is_pinned,
+                                      tags: Array.isArray(note.tags) ? note.tags.join(', ') : ''
+                                    });
+                                    setShowAddNoteModal(true);
+                                  }}
+                                  style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', padding: '4px' }}
+                                  title="Edit Note"
+                                >
+                                  <Edit3 size={15} />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteHrNote(note.id)}
+                                  style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
+                                  title="Delete Note"
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Add / Edit Note Modal */}
+                  {showAddNoteModal && (
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
+                      <div className="glass-card" style={{ width: '100%', maxWidth: '650px', border: '1px solid rgba(200,146,42,0.4)', animation: 'slideUp 0.25s ease', maxHeight: '90vh', overflowY: 'auto' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.85rem' }}>
+                          <h2 style={{ fontSize: '1.2rem', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <StickyNote size={20} style={{ color: 'var(--color-primary)' }} />
+                            {editingNote ? 'Edit Confidential HR Note' : 'Create New HR Note'}
+                          </h2>
+                          <button onClick={() => { setShowAddNoteModal(false); setEditingNote(null); }} className="btn btn-secondary" style={{ padding: '4px 10px' }}>✕</button>
+                        </div>
+
+                        <form onSubmit={handleSaveHrNote} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          <div>
+                            <label className="form-label">Note Title *</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Q3 Performance Review Feedback / Special Policy Approval"
+                              value={noteForm.title}
+                              onChange={(e) => setNoteForm({ ...noteForm, title: e.target.value })}
+                              className="form-input"
+                            />
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <div>
+                              <label className="form-label">Category</label>
+                              <select
+                                value={noteForm.category}
+                                onChange={(e) => setNoteForm({ ...noteForm, category: e.target.value })}
+                                className="form-input"
+                              >
+                                {categoriesList.map(cat => (
+                                  <option key={cat} value={cat}>{cat}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="form-label">Priority Level</label>
+                              <select
+                                value={noteForm.priority}
+                                onChange={(e) => setNoteForm({ ...noteForm, priority: e.target.value })}
+                                className="form-input"
+                              >
+                                <option value="low">Low Priority</option>
+                                <option value="normal">Normal Priority</option>
+                                <option value="high">High Priority</option>
+                                <option value="urgent">Urgent Priority</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <div>
+                              <label className="form-label">Associated Employee (Optional)</label>
+                              <select
+                                value={noteForm.employee_id}
+                                onChange={(e) => setNoteForm({ ...noteForm, employee_id: e.target.value })}
+                                className="form-input"
+                              >
+                                <option value="">-- General Memo (No specific employee) --</option>
+                                {employees.map(emp => (
+                                  <option key={emp.id} value={emp.id}>
+                                    {emp.full_name} ({emp.position || 'Staff'})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="form-label">Tags (Comma-separated)</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. review, confidential, bonus"
+                                value={noteForm.tags}
+                                onChange={(e) => setNoteForm({ ...noteForm, tags: e.target.value })}
+                                className="form-input"
+                              />
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+                            <input
+                              type="checkbox"
+                              id="is_pinned_checkbox"
+                              checked={noteForm.is_pinned}
+                              onChange={(e) => setNoteForm({ ...noteForm, is_pinned: e.target.checked })}
+                              style={{ width: '16px', height: '16px', accentColor: 'var(--color-primary)', cursor: 'pointer' }}
+                            />
+                            <label htmlFor="is_pinned_checkbox" style={{ fontSize: '0.85rem', cursor: 'pointer', userSelect: 'none' }}>
+                              📌 Pin note to top of HR dashboard
+                            </label>
+                          </div>
+
+                          <div>
+                            <label className="form-label">Confidential Content *</label>
+                            <textarea
+                              rows={5}
+                              required
+                              placeholder="Write confidential HR notes, discussions, performance points, or background context here..."
+                              value={noteForm.content}
+                              onChange={(e) => setNoteForm({ ...noteForm, content: e.target.value })}
+                              className="form-input"
+                              style={{ resize: 'vertical' }}
+                            ></textarea>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+                            <button
+                              type="button"
+                              onClick={() => { setShowAddNoteModal(false); setEditingNote(null); }}
+                              className="btn btn-secondary"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              className="btn btn-primary"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                            >
+                              <CheckCircle2 size={16} /> Save HR Note
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })()}
