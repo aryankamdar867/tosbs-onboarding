@@ -2520,6 +2520,14 @@ const loadReimbursements = async (empId) => {
         .select('*')
         .eq('status', 'approved');
 
+      // Fetch all attendance records once (fast & avoids unindexed Postgres gte/lte timeouts)
+      const { data: allAttendance, error: attErr } = await supabase
+        .from('attendance')
+        .select('employee_id, date, status, work_type')
+        .limit(50000);
+
+      if (attErr) console.error('Error fetching attendance records:', attErr);
+
       const workbook = XLSX.utils.book_new();
       const today = new Date();
       const todayStr = today.toISOString().split('T')[0];
@@ -2547,20 +2555,12 @@ const loadReimbursements = async (empId) => {
       for (const { year, month } of monthsToExport) {
         const monthStr = String(month).padStart(2, '0');
         const daysInMonth = new Date(year, month, 0).getDate();
-        const startDate = `${year}-${monthStr}-01`;
-        const endDate = `${year}-${monthStr}-${String(daysInMonth).padStart(2, '0')}`;
+        const monthPrefix = `${year}-${monthStr}`;
 
-        const { data: attendance, error: attErr } = await supabase
-          .from('attendance')
-          .select('*')
-          .gte('date', startDate)
-          .lte('date', endDate)
-          .limit(5000);
-
-        if (attErr) console.error('Error fetching month attendance:', attErr);
+        const attendanceForMonth = (allAttendance || []).filter(r => r.date && String(r.date).startsWith(monthPrefix));
 
         const attMap = {};
-        (attendance || []).forEach(r => {
+        attendanceForMonth.forEach(r => {
           if (r.date) {
             const formattedDate = String(r.date).split('T')[0];
             attMap[`${r.employee_id}_${formattedDate}`] = r;
