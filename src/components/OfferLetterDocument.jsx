@@ -16,6 +16,13 @@ export const OfferLetterDocument = ({ data, id = 'tosbs-offer-letter-doc' }) => 
   const letterDate = data.letterDate || new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }).replace(/ /g, '.');
   const salaryBreakdown = data.salaryBreakdown || null;
 
+  const probationPeriod = data.probationPeriod || '3 months';
+  const includeTds = Boolean(data.includeTds);
+  const annualTds = Math.round(annualVal * 0.02);
+  const monthlyTds = Math.round(monthlyVal * 0.02);
+  const annualNet = annualVal - annualTds;
+  const monthlyNet = monthlyVal - monthlyTds;
+
   const monthlyVal = Math.round(Number(monthlyCtc) || Math.round(Number(annualCtc) / 12) || 0);
   const annualVal = Math.round(Number(annualCtc) || monthlyVal * 12 || 0);
 
@@ -54,6 +61,26 @@ export const OfferLetterDocument = ({ data, id = 'tosbs-offer-letter-doc' }) => 
     }
   })();
 
+  const watermarkRender = () => (
+    <div
+      style={{
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: '320px',
+        height: '320px',
+        opacity: 0.05,
+        pointerEvents: 'none',
+        zIndex: 0,
+        backgroundImage: 'url(/Capture.JPG)',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'center center',
+        backgroundSize: '340% auto',
+      }}
+    />
+  );
+
   const pageContainerStyle = {
     width: '100%',
     maxWidth: '820px',
@@ -83,7 +110,7 @@ export const OfferLetterDocument = ({ data, id = 'tosbs-offer-letter-doc' }) => 
   };
 
   const headerRender = () => (
-    <div style={{ marginBottom: '15px' }}>
+    <div style={{ marginBottom: '15px', position: 'relative', zIndex: 1 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
         <img src="/Capture.JPG" alt="TOSBS" style={{ height: '52px', objectFit: 'contain' }} />
       </div>
@@ -92,7 +119,7 @@ export const OfferLetterDocument = ({ data, id = 'tosbs-offer-letter-doc' }) => 
   );
 
   const footerRender = () => (
-    <div style={{ marginTop: '20px' }}>
+    <div style={{ marginTop: '20px', position: 'relative', zIndex: 1 }}>
       <hr style={{ border: 'none', borderTop: '1.5px solid #000000', margin: '0 0 8px 0' }} />
       <div style={{ textAlign: 'center', fontSize: '11px', color: '#111827', lineHeight: '1.4' }}>
         <p style={{ margin: 0, fontWeight: 700, fontSize: '11.5px' }}>TOSBS - The One Stop Business Solution Pvt Ltd</p>
@@ -141,7 +168,8 @@ export const OfferLetterDocument = ({ data, id = 'tosbs-offer-letter-doc' }) => 
 
       {/* PAGE 1 */}
       <div className="offer-letter-page" style={pageStyle}>
-        <div>
+        {watermarkRender()}
+        <div style={{ position: 'relative', zIndex: 1 }}>
           {headerRender()}
           
           <div style={{ textAlign: 'right', fontWeight: 600, fontSize: '12px', margin: '15px 0 20px 0' }}>
@@ -196,14 +224,15 @@ export const OfferLetterDocument = ({ data, id = 'tosbs-offer-letter-doc' }) => 
 
       {/* PAGE 2 */}
       <div className="offer-letter-page" style={pageStyle}>
-        <div>
+        {watermarkRender()}
+        <div style={{ position: 'relative', zIndex: 1 }}>
           {headerRender()}
 
           <div style={{ lineHeight: '1.5', color: '#000' }}>
             <p style={{ margin: '0 0 8px 0', fontWeight: 700 }}>• Probation, Confirmation and Notice period:</p>
             <div style={{ paddingLeft: '15px', marginBottom: '14px' }}>
               <p style={{ margin: '0 0 6px 0', textAlign: 'justify' }}>
-                i. You will initially be on probation for a period of 3 months. During this period, the Firm may conduct evaluation(s) on functional and behavioral aspects of your role as deemed fit, to ascertain the suitability of the employment.
+                i. You will initially be on probation for a period of <strong>{probationPeriod}</strong>. During this period, the Firm may conduct evaluation(s) on functional and behavioral aspects of your role as deemed fit, to ascertain the suitability of the employment.
               </p>
               <p style={{ margin: '0 0 6px 0', textAlign: 'justify' }}>
                 ii. During probation, the employment may be ended through a written notification, by given 15(fifteen) days’ notice, or equivalent compensation, in lieu thereof, on either side.
@@ -257,7 +286,8 @@ export const OfferLetterDocument = ({ data, id = 'tosbs-offer-letter-doc' }) => 
 
       {/* PAGE 3 (ANNEXURE 1) */}
       <div className="offer-letter-page" style={pageStyle}>
-        <div>
+        {watermarkRender()}
+        <div style={{ position: 'relative', zIndex: 1 }}>
           {headerRender()}
 
           <div style={{ textAlign: 'center', margin: '15px 0 20px 0' }}>
@@ -325,6 +355,20 @@ export const OfferLetterDocument = ({ data, id = 'tosbs-offer-letter-doc' }) => 
                 <td style={{ padding: '8px 12px', border: '1.5px solid #000', textAlign: 'right' }}>{formatCurrency(annualVal)}</td>
                 <td style={{ padding: '8px 12px', border: '1.5px solid #000', textAlign: 'right' }}>{formatCurrency(monthlyVal)}</td>
               </tr>
+              {includeTds && (
+                <>
+                  <tr style={{ color: '#dc2626' }}>
+                    <td style={{ padding: '7px 12px', border: '1px solid #000' }}>TDS Deduction (2%)</td>
+                    <td style={{ padding: '7px 12px', border: '1px solid #000', textAlign: 'right' }}>-{formatCurrency(annualTds)}</td>
+                    <td style={{ padding: '7px 12px', border: '1px solid #000', textAlign: 'right' }}>-{formatCurrency(monthlyTds)}</td>
+                  </tr>
+                  <tr style={{ fontWeight: 700, backgroundColor: '#e5e7eb' }}>
+                    <td style={{ padding: '8px 12px', border: '1.5px solid #000' }}>Net Salary Payable (Post TDS)</td>
+                    <td style={{ padding: '8px 12px', border: '1.5px solid #000', textAlign: 'right' }}>{formatCurrency(annualNet)}</td>
+                    <td style={{ padding: '8px 12px', border: '1.5px solid #000', textAlign: 'right' }}>{formatCurrency(monthlyNet)}</td>
+                  </tr>
+                </>
+              )}
             </tbody>
           </table>
 
@@ -343,7 +387,8 @@ export const OfferLetterDocument = ({ data, id = 'tosbs-offer-letter-doc' }) => 
 
       {/* PAGE 4 (IT ACT AUTHORIZATION) */}
       <div className="offer-letter-page" style={pageStyle}>
-        <div>
+        {watermarkRender()}
+        <div style={{ position: 'relative', zIndex: 1 }}>
           {headerRender()}
 
           <div style={{ textAlign: 'center', margin: '15px 0 18px 0' }}>
@@ -409,7 +454,8 @@ export const OfferLetterDocument = ({ data, id = 'tosbs-offer-letter-doc' }) => 
 
       {/* PAGE 5 (STRICTLY PRIVATE & CONFIDENTIAL) */}
       <div className="offer-letter-page" style={pageStyle}>
-        <div>
+        {watermarkRender()}
+        <div style={{ position: 'relative', zIndex: 1 }}>
           {headerRender()}
 
           <div style={{ textAlign: 'center', margin: '15px 0 20px 0' }}>

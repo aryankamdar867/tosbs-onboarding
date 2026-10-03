@@ -31,6 +31,8 @@ export const OfferLetterModal = ({
     joiningDate: employee.date_of_joining || employee.dob || new Date().toISOString().split('T')[0],
     location: 'Pune',
     reportingTo: 'Amar Talwar',
+    probationPeriod: '3 months',
+    includeTds: false,
     annualCtc: 600000,
     monthlyCtc: 50000,
     letterDate: defaultLetterDate,
@@ -44,6 +46,8 @@ export const OfferLetterModal = ({
       setFormData(prev => ({
         ...prev,
         ...effectiveOfferData,
+        probationPeriod: effectiveOfferData.probationPeriod || prev.probationPeriod || '3 months',
+        includeTds: effectiveOfferData.includeTds !== undefined ? effectiveOfferData.includeTds : prev.includeTds,
         fullName: effectiveOfferData.fullName || effectiveOfferData.candidateName || prev.fullName,
         candidateCode: effectiveOfferData.candidateCode || prev.candidateCode,
         location: effectiveOfferData.location || effectiveOfferData.workLocation || prev.location,
@@ -405,6 +409,18 @@ export const OfferLetterModal = ({
               </div>
 
               <div className="form-group">
+                <label className="form-label" style={{ color: '#374151' }}>Probation Period *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ color: '#111827', backgroundColor: '#f9fafb', borderColor: '#d1d5db' }}
+                  value={formData.probationPeriod || '3 months'}
+                  onChange={(e) => setFormData({ ...formData, probationPeriod: e.target.value })}
+                  placeholder="e.g. 3 months, 6 months"
+                />
+              </div>
+
+              <div className="form-group">
                 <label className="form-label" style={{ color: '#374151' }}>Annual CTC (₹) *</label>
                 <input
                   type="number"
@@ -417,15 +433,30 @@ export const OfferLetterModal = ({
               </div>
 
               <div className="form-group">
-                <label className="form-label" style={{ color: '#374151' }}>Monthly Compensation (₹)</label>
+                <label className="form-label" style={{ color: '#374151' }}>Monthly Compensation (₹) *</label>
                 <input
                   type="number"
                   className="form-input"
                   style={{ color: '#111827', backgroundColor: '#f9fafb', borderColor: '#d1d5db' }}
                   value={formData.monthlyCtc}
-                  onChange={(e) => setFormData({ ...formData, monthlyCtc: Number(e.target.value) || 0 })}
+                  onChange={(e) => {
+                    const m = Number(e.target.value) || 0;
+                    setFormData({ ...formData, monthlyCtc: m, annualCtc: m * 12 });
+                  }}
                   step="500"
                 />
+              </div>
+
+              <div className="form-group" style={{ gridColumn: '1 / -1', marginTop: '0.25rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', cursor: 'pointer', color: '#111827', fontWeight: 600, fontSize: '0.85rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.includeTds || false}
+                    onChange={(e) => setFormData({ ...formData, includeTds: e.target.checked })}
+                    style={{ width: '16px', height: '16px', accentColor: '#c8922a' }}
+                  />
+                  <span>Apply 2% TDS Deduction in Salary Computation Annexure (Optional for HR)</span>
+                </label>
               </div>
             </div>
 

@@ -2287,6 +2287,8 @@ const loadReimbursements = async (empId) => {
         department: emp.department || 'Operations',
         workLocation: details?.current_address || 'Gurugram, Haryana',
         reportingManager: 'Amar Talwar',
+        probationPeriod: '3 months',
+        includeTds: false,
         joiningDate: details?.date_of_joining || new Date().toISOString().split('T')[0],
         employmentType: 'Full-Time',
         annualCtc: ctc,
