@@ -2491,12 +2491,20 @@ const loadReimbursements = async (empId) => {
 
       if (profErr) throw profErr;
 
+      // Filter out HR, Announcement accounts, and Deactivated/Resigned/Inactive employees
+      const deactivatedStatuses = ['inactive', 'resigned', 'deactivated', 'disabled', 'terminated', 'offboarded'];
       const validEmployees = (profiles || [])
-        .filter(p => p.role !== 'announcement' && p.status !== 'announcement' && p.role !== 'hr')
+        .filter(p => {
+          if (!p) return false;
+          if (p.role === 'announcement' || p.status === 'announcement' || p.role === 'hr') return false;
+          const st = (p.status || '').toLowerCase();
+          if (deactivatedStatuses.includes(st)) return false;
+          return true;
+        })
         .sort((a, b) => (a.full_name || '').trim().localeCompare((b.full_name || '').trim()));
 
       if (validEmployees.length === 0) {
-        alert('No employees found to export attendance master sheet.');
+        alert('No active employees found to export attendance master sheet.');
         return;
       }
 
@@ -2551,7 +2559,10 @@ const loadReimbursements = async (empId) => {
 
         const attMap = {};
         (attendance || []).forEach(r => {
-          attMap[`${r.employee_id}_${r.date}`] = r;
+          if (r.date) {
+            const formattedDate = String(r.date).split('T')[0];
+            attMap[`${r.employee_id}_${formattedDate}`] = r;
+          }
         });
 
         const monthHeaderLabel = `${monthNamesShort[month - 1]}-${String(year).slice(-2)}`;
@@ -2559,7 +2570,7 @@ const loadReimbursements = async (empId) => {
         // Row 1: Month Year label (e.g. Aug-26)
         const row1 = ['', monthHeaderLabel];
         // Row 2: Legend
-        const row2 = ['', 'H - HOLIDAY    NA - NOT APPLICABLE    HD - HALF DAY    WH- WORK FROM HOME    A-ABSENT    P - PRESENT    TOUR - T'];
+        const row2 = ['', 'H - HOLIDAY    NA - NOT APPLICABLE    HD - HALF DAY    A - ABSENT    P - PRESENT    TOUR - TOUR'];
         // Row 3: Day numbers (SR.NO., Name, 1, 2, 3...)
         const row3 = ['SR.NO.', 'Name'];
         // Row 4: Day names of week (SAT, SUN, MON, TUE, WED, THUR, FRI...)
@@ -2586,14 +2597,24 @@ const loadReimbursements = async (empId) => {
 
             if (rec) {
               // Actual database attendance record ALWAYS takes highest priority
-              if (rec.work_type === 'wfh') row.push('WFH');
-              else if (rec.work_type === 'on_tour' || rec.status === 'tour') row.push('Tour');
-              else if (rec.status === 'half_day') row.push('HD');
-              else if (rec.status === 'leave' || rec.work_type === 'leave') row.push('Leave');
-              else if (rec.status === 'holiday') row.push('H');
-              else if (rec.status === 'absent') row.push('A');
-              else if (rec.status === 'present') row.push('P');
-              else row.push(rec.status?.toUpperCase() || 'P');
+              const st = (rec.status || '').toLowerCase();
+              const wt = (rec.work_type || '').toLowerCase();
+
+              if (st === 'absent') {
+                row.push('A');
+              } else if (st === 'present' || st === 'p' || wt === 'office' || wt === 'wfh') {
+                row.push('P');
+              } else if (wt === 'on_tour' || st === 'tour') {
+                row.push('Tour');
+              } else if (st === 'half_day' || st === 'hd') {
+                row.push('HD');
+              } else if (st === 'leave' || wt === 'leave') {
+                row.push('Leave');
+              } else if (st === 'holiday' || st === 'h') {
+                row.push('H');
+              } else {
+                row.push('P');
+              }
             } else if (hasLeave) {
               row.push('Leave');
             } else if (isFest) {
