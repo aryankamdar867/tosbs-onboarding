@@ -41,17 +41,21 @@ export const PayslipDocument = ({ emp, breakdown, monthStr, id = 'tosbs-payslip-
   const payableDays = breakdown.payableDays ?? (totalDays - absentDays);
 
   const monthlyCtc = Math.round(Number(breakdown.monthlyCtc) || 75000);
+  const offer = breakdown.offerBreakdown || emp.offerData || null;
 
-  // Earnings Bifurcation
-  const basicSalary = Math.round(monthlyCtc * 0.50);
-  const hra = Math.round(monthlyCtc * 0.25);
-  const conveyance = Math.round(monthlyCtc * 0.10);
-  const otherAllowance = Math.max(0, monthlyCtc - basicSalary - hra - conveyance);
-  const totalEarnings = basicSalary + hra + conveyance + otherAllowance;
+  // Earnings Components (Matched with Offer Letter Annexure)
+  const basicSalary = offer?.basicMonthly ? Math.round(offer.basicMonthly) : Math.round(monthlyCtc * 0.50);
+  const hra = offer?.hraMonthly ? Math.round(offer.hraMonthly) : Math.round(basicSalary * 0.50);
+  const conveyance = offer?.convMonthly !== undefined ? Math.round(offer.convMonthly) : (monthlyCtc >= 25000 ? 960 : Math.round(monthlyCtc * 0.10));
+  const medicalAllowance = offer?.medMonthly !== undefined ? Math.round(offer.medMonthly) : (monthlyCtc >= 25000 ? 750 : 0);
+  const otherAllowance = offer?.specialMonthly !== undefined ? Math.round(offer.specialMonthly) : Math.max(0, monthlyCtc - basicSalary - hra - conveyance - medicalAllowance);
+  const totalEarnings = basicSalary + hra + conveyance + medicalAllowance + otherAllowance;
 
-  // Deductions
-  const tdsDeduction = breakdown.includeTds ? Math.round(monthlyCtc * 0.02) : Math.round(breakdown.deduction || 0);
-  const totalDeduction = tdsDeduction;
+  // Separate Itemized Deductions
+  const includeTds = Boolean(breakdown.includeTds);
+  const tdsDeduction = includeTds ? Math.round(breakdown.tds ?? (monthlyCtc * 0.02)) : 0;
+  const leaveDeduction = Math.round(breakdown.leaveDeduction ?? (breakdown.excessLeaves ? (breakdown.excessLeaves * (monthlyCtc / totalDays)) : 0));
+  const totalDeduction = tdsDeduction + leaveDeduction;
 
   const netPayable = Math.max(0, totalEarnings - totalDeduction);
 
@@ -167,7 +171,7 @@ export const PayslipDocument = ({ emp, breakdown, monthStr, id = 'tosbs-payslip-
             <td style={{ textAlign: 'right', padding: '8px 10px', borderRight: '1.5px solid #000000' }}>{formatMoney(basicSalary)}</td>
             <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>TDS</span>
+                <span>TDS {includeTds ? '(2%)' : ''}</span>
                 <span>{formatMoney(tdsDeduction)}</span>
               </div>
             </td>
@@ -176,7 +180,12 @@ export const PayslipDocument = ({ emp, breakdown, monthStr, id = 'tosbs-payslip-
             <td style={{ padding: '8px 10px', borderRight: '1.5px solid #000000' }}>HRA</td>
             <td style={{ textAlign: 'right', padding: '8px 10px', borderRight: '1.5px solid #000000' }}>{formatMoney(hra)}</td>
             <td style={{ textAlign: 'right', padding: '8px 10px', borderRight: '1.5px solid #000000' }}>{formatMoney(hra)}</td>
-            <td style={{ padding: '8px 10px' }}></td>
+            <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Leave Deduction</span>
+                <span>{formatMoney(leaveDeduction)}</span>
+              </div>
+            </td>
           </tr>
           <tr>
             <td style={{ padding: '8px 10px', borderRight: '1.5px solid #000000' }}>Conveyance Allowance</td>
@@ -184,6 +193,14 @@ export const PayslipDocument = ({ emp, breakdown, monthStr, id = 'tosbs-payslip-
             <td style={{ textAlign: 'right', padding: '8px 10px', borderRight: '1.5px solid #000000' }}>{formatMoney(conveyance)}</td>
             <td style={{ padding: '8px 10px' }}></td>
           </tr>
+          {medicalAllowance > 0 && (
+            <tr>
+              <td style={{ padding: '8px 10px', borderRight: '1.5px solid #000000' }}>Medical Allowance</td>
+              <td style={{ textAlign: 'right', padding: '8px 10px', borderRight: '1.5px solid #000000' }}>{formatMoney(medicalAllowance)}</td>
+              <td style={{ textAlign: 'right', padding: '8px 10px', borderRight: '1.5px solid #000000' }}>{formatMoney(medicalAllowance)}</td>
+              <td style={{ padding: '8px 10px' }}></td>
+            </tr>
+          )}
           <tr>
             <td style={{ padding: '8px 10px', borderRight: '1.5px solid #000000' }}>Other Allowance</td>
             <td style={{ textAlign: 'right', padding: '8px 10px', borderRight: '1.5px solid #000000' }}>{formatMoney(otherAllowance)}</td>

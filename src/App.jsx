@@ -1228,6 +1228,34 @@ const handleHrLogin = (e) => {
 
       const { data: empProfile } = await supabase.from('profiles').select('id, full_name, position').eq('id', employeeId).maybeSingle();
 
+      const { data: offerDoc } = await supabase
+        .from('employee_documents')
+        .select('*')
+        .eq('employee_id', employeeId)
+        .eq('document_type', 'offer_letter')
+        .order('uploaded_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      let offerData = null;
+      if (offerDoc?.file_url) {
+        try {
+          offerData = typeof offerDoc.file_url === 'string' && offerDoc.file_url.startsWith('{')
+            ? JSON.parse(offerDoc.file_url)
+            : null;
+        } catch (e) {}
+      }
+
+      const nameLower = (empProfile?.full_name || '').toLowerCase();
+      let includeTds = false;
+      if (config && config.tds_enabled !== undefined && config.tds_enabled !== null) {
+        includeTds = Boolean(config.tds_enabled);
+      } else if (offerData && offerData.includeTds !== undefined && offerData.includeTds !== null) {
+        includeTds = Boolean(offerData.includeTds);
+      } else if (nameLower.includes('purva') || nameLower.includes('adarsh')) {
+        includeTds = true;
+      }
+
       const [year, month] = monthStr.split('-');
       const daysInMonth = new Date(parseInt(year), parseInt(month), 0).getDate();
       const startDate = `${year}-${month}-01`;
@@ -1303,6 +1331,7 @@ const handleHrLogin = (e) => {
           else if (rec.status === 'weekly_off') weeklyOffDays++;
           else if (rec.status === 'comp_off') compOffUsed++;
           else if (rec.status === 'tour') onTourDays++;
+          else presentDays++;
         } else if (isOnLeave) {
           // Approved leave application covers this day
           leaveDays++;
@@ -1310,29 +1339,28 @@ const handleHrLogin = (e) => {
           // Public holiday — not absent
           holidayDays++;
         } else {
-          // No record, not a holiday, not on leave → absent
-          absentDays++;
+          // No explicit absent record, not a holiday, not on leave → active working day defaults to Present
+          presentDays++;
         }
       }
 
       const leavesAllowed = 1.0;
-      // leavesTaken includes both unrecorded absents AND approved leave applications
       const leavesTaken = absentDays + leaveDays + (halfDays * 0.5);
       const excessLeaves = Math.max(0, leavesTaken - leavesAllowed);
       const extraDaysWorked = 0;
-      const netPayDays = daysInMonth - excessLeaves + extraDaysWorked;
+      const netPayDays = Math.max(0, daysInMonth - excessLeaves + extraDaysWorked);
+      const payableDays = parseFloat(netPayDays.toFixed(2));
 
       const perDayRate = daysInMonth > 0 ? monthlyCtc / daysInMonth : 0;
-      const grossEarned = perDayRate * netPayDays;
+      const grossEarned = Math.round(perDayRate * netPayDays);
+      const leaveDeduction = Math.round(excessLeaves * perDayRate);
 
-      // TDS calculation: 2% for consultant/professional or configured profiles
       let tds = 0;
-      const nameLower = (empProfile?.full_name || '').toLowerCase();
-      if (nameLower.includes('purva') || nameLower.includes('adarsh') || config?.tds_rate) {
-        tds = (config?.tds_rate ? (grossEarned * config.tds_rate / 100) : (grossEarned * 0.02));
+      if (includeTds) {
+        const tdsRate = config?.tds_rate ? (config.tds_rate / 100) : 0.02;
+        tds = Math.round(grossEarned * tdsRate);
       }
 
-      const leaveDeduction = excessLeaves * perDayRate;
       const totalDeduction = leaveDeduction + tds;
       const netSalary = Math.max(0, grossEarned - tds);
 
@@ -1347,6 +1375,7 @@ const handleHrLogin = (e) => {
         leavesAllowed,
         excessLeaves,
         netPayDays: parseFloat(netPayDays.toFixed(2)),
+        payableDays,
         extraDaysWorked,
         billableAbsents: parseFloat(excessLeaves.toFixed(1)),
         freeLeaveAllowance: leavesAllowed,
@@ -1357,10 +1386,18 @@ const handleHrLogin = (e) => {
         weeklyOffDays,
         sundayWorkedDays,
         compOffUsed,
+        includeTds,
         tds: parseFloat(tds.toFixed(2)),
         leaveDeduction: parseFloat(leaveDeduction.toFixed(2)),
         deduction: parseFloat(totalDeduction.toFixed(2)),
         netSalary: parseFloat(netSalary.toFixed(2)),
+        offerBreakdown: offerData ? {
+          basicMonthly: offerData.basicMonthly,
+          hraMonthly: offerData.hraMonthly,
+          convMonthly: offerData.convMonthly,
+          medMonthly: offerData.medMonthly,
+          specialMonthly: offerData.specialMonthly,
+        } : null,
         overtimeHours: 0,
         overtimePay: 0,
       };
@@ -1377,7 +1414,11 @@ const handleHrLogin = (e) => {
       const breakdown = await calculateSalaryForEmployee(employeeId, monthStr);
       setSalaryBreakdown(breakdown);
       if (breakdown) {
-        setSalaryConfig({ monthly_ctc: breakdown.monthlyCtc, overtime_multiplier: 1 });
+        setSalaryConfig({
+          monthly_ctc: breakdown.monthlyCtc,
+          tds_enabled: breakdown.includeTds,
+          overtime_multiplier: 1
+        });
       }
     } catch (err) {
       console.error('Error computing salary:', err);
@@ -1574,13 +1615,14 @@ const handleHrLogin = (e) => {
       await supabase.from('salary_config').upsert({
         employee_id: employeeId,
         monthly_ctc: parseFloat(salaryConfig.monthly_ctc) || 0,
+        tds_enabled: Boolean(salaryConfig.tds_enabled),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'employee_id' });
-      alert('CTC saved. Recalculating...');
+      alert('Salary settings saved. Recalculating...');
       computeSalary(employeeId, salaryMonth);
     } catch (err) {
       console.error(err);
-      alert('Failed to save CTC.');
+      alert('Failed to save salary settings.');
     }
   };
 
@@ -3436,15 +3478,18 @@ const loadReimbursements = async (empId) => {
 
                 {hrSalaryEmployee && (
                   <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
-                    <h3 style={{ fontSize: '1rem', marginBottom: '1rem' }}>Set Monthly CTC</h3>
-                    <div className="form-row">
+                    <h3 style={{ fontSize: '1rem', marginBottom: '1rem' }}>Salary & Tax Settings</h3>
+                    <div className="form-row" style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                       <div className="form-group" style={{ marginBottom: 0 }}>
                         <label className="form-label">Monthly CTC (₹)</label>
                         <input type="number" className="form-input" value={salaryConfig.monthly_ctc} onChange={(e) => setSalaryConfig({ ...salaryConfig, monthly_ctc: e.target.value })} placeholder="e.g. 45000" />
                       </div>
-                      
+                      <div className="form-group" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1.5rem' }}>
+                        <input type="checkbox" id="tds_enabled_chk" checked={Boolean(salaryConfig.tds_enabled)} onChange={(e) => setSalaryConfig({ ...salaryConfig, tds_enabled: e.target.checked })} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+                        <label htmlFor="tds_enabled_chk" className="form-label" style={{ marginBottom: 0, cursor: 'pointer', fontWeight: 600 }}>Deduct 2% TDS on Payslip</label>
+                      </div>
                     </div>
-                    <button onClick={() => saveSalaryConfig(hrSalaryEmployee)} className="btn btn-primary" style={{ marginTop: '0.5rem' }}>Save CTC</button>
+                    <button onClick={() => saveSalaryConfig(hrSalaryEmployee)} className="btn btn-primary" style={{ marginTop: '1rem' }}>Save Settings</button>
                   </div>
                 )}
 
