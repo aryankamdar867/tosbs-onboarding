@@ -3028,42 +3028,43 @@ const loadReimbursements = async (empId) => {
         <div style={{ display: 'flex', width: '100%' }}>
           <div style={sidebarStyle}>
             <div style={sidebarHeaderStyle}>
-              <img src="/Capture.JPG" alt="TOSBS" style={{ height: '36px', filter: 'brightness(0) invert(1)' }} />
+              <div style={{ backgroundColor: '#ffffff', padding: '6px 12px', borderRadius: '8px', display: 'inline-flex', alignItems: 'center' }}>
+                <img src="/Capture.JPG" alt="TOSBS" style={{ height: '32px', objectFit: 'contain' }} />
+              </div>
             </div>
             <nav style={sidebarNavStyle}>
-              <button onClick={() => setHrActiveTab('analytics')} style={hrActiveTab === 'analytics' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+              <button onClick={() => setHrActiveTab('analytics')} className={hrActiveTab === 'analytics' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'analytics' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <LayoutDashboard size={18} /><span>Dashboard</span>
               </button>
-              <button onClick={() => setHrActiveTab('employees')} style={hrActiveTab === 'employees' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+              <button onClick={() => setHrActiveTab('employees')} className={hrActiveTab === 'employees' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'employees' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <Users size={18} /><span>Employees</span>
                 {stats.pendingReview > 0 && <span style={badgeCountStyle}>{stats.pendingReview}</span>}
               </button>
-              <button onClick={() => { setHrActiveTab('attendance'); loadHrAttendance(); }} style={hrActiveTab === 'attendance' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+              <button onClick={() => { setHrActiveTab('attendance'); loadHrAttendance(); }} className={hrActiveTab === 'attendance' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'attendance' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <Clock size={18} /><span>Attendance</span>
               </button>
-                           <button onClick={() => { setHrActiveTab('leaves'); loadHrLeaves(); }} style={hrActiveTab === 'leaves' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+              <button onClick={() => { setHrActiveTab('leaves'); loadHrLeaves(); }} className={hrActiveTab === 'leaves' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'leaves' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <CalendarDays size={18} /><span>Leave Requests</span>
                 {hrLeaveApplications.filter(l => l.status === 'pending').length > 0 && <span style={badgeCountStyle}>{hrLeaveApplications.filter(l => l.status === 'pending').length}</span>}
               </button>
-              <button onClick={() => setHrActiveTab('salary')} style={hrActiveTab === 'salary' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+              <button onClick={() => setHrActiveTab('salary')} className={hrActiveTab === 'salary' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'salary' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <Award size={18} /><span>Salary</span>
               </button>
-            
-              <button onClick={() => { setHrActiveTab('reimbursements'); loadHrReimbursements(); }} style={hrActiveTab === 'reimbursements' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+              <button onClick={() => { setHrActiveTab('reimbursements'); loadHrReimbursements(); }} className={hrActiveTab === 'reimbursements' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'reimbursements' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <CreditCard size={18} /><span>Reimbursements</span>
                 {hrReimbursements.filter(r => r.status === 'pending').length > 0 && <span style={badgeCountStyle}>{hrReimbursements.filter(r => r.status === 'pending').length}</span>}
               </button>
-              <button onClick={() => { setHrActiveTab('resignations'); loadHrResignations(); }} style={hrActiveTab === 'resignations' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+              <button onClick={() => { setHrActiveTab('resignations'); loadHrResignations(); }} className={hrActiveTab === 'resignations' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'resignations' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <UserMinus size={18} /><span>Resignations</span>
                 {hrResignations.filter(r => r.status === 'pending').length > 0 && <span style={badgeCountStyle}>{hrResignations.filter(r => r.status === 'pending').length}</span>}
               </button>
-              <button onClick={() => { setHrActiveTab('offer-letters'); loadAllOfferLetters(); }} style={hrActiveTab === 'offer-letters' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+              <button onClick={() => { setHrActiveTab('offer-letters'); loadAllOfferLetters(); }} className={hrActiveTab === 'offer-letters' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'offer-letters' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <FileCheck size={18} /><span>Offer Letters</span>
               </button>
-              <button onClick={() => { setHrActiveTab('notes'); loadHrNotes(); }} style={hrActiveTab === 'notes' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+              <button onClick={() => { setHrActiveTab('notes'); loadHrNotes(); }} className={hrActiveTab === 'notes' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'notes' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <StickyNote size={18} /><span>HR Notes</span>
               </button>
-              <button onClick={() => { setShowAnnouncement(!showAnnouncement); setAnnouncementSuccessMsg(''); }} style={sidebarLinkStyle}>
+              <button onClick={() => { setShowAnnouncement(!showAnnouncement); setAnnouncementSuccessMsg(''); }} className="sidebar-btn" style={sidebarLinkStyle}>
                 <Bell size={18} /><span>Announce</span>
               </button>
               {showAnnouncement && (
@@ -5271,19 +5272,19 @@ const loadReimbursements = async (empId) => {
         <div style={{ display: 'flex', width: '100%' }}>
           <div style={sidebarStyle}>
             <div style={sidebarHeaderStyle}>
-            
-              <img src="/Capture.jpg" alt="TOSBS" style={{ height: '50px', filter: 'brightness(0) invert(1)' }} />
+              <div style={{ backgroundColor: '#ffffff', padding: '6px 12px', borderRadius: '8px', display: 'inline-flex', alignItems: 'center' }}>
+                <img src="/Capture.JPG" alt="TOSBS" style={{ height: '32px', objectFit: 'contain' }} />
+              </div>
             </div>
             <nav style={sidebarNavStyle}>
-              <button onClick={() => setAttendanceTab('overview')} style={attendanceTab === 'overview' ? sidebarLinkActiveStyle : sidebarLinkStyle}><LayoutDashboard size={18} /><span>Overview</span></button>
-              <button onClick={() => { setAttendanceTab('attendance'); loadTodayAttendance(activeEmployee.id); loadAttendanceHistory(activeEmployee.id); }} style={attendanceTab === 'attendance' ? sidebarLinkActiveStyle : sidebarLinkStyle}><Clock size={18} /><span>Attendance</span></button>
-                             <button onClick={() => { setAttendanceTab('leave'); loadEmployeeLeaves(activeEmployee.id); }} style={attendanceTab === 'leave' ? sidebarLinkActiveStyle : sidebarLinkStyle}><CalendarDays size={18} /><span>Leave</span></button>
-              <button onClick={() => { setAttendanceTab('salary'); computeSalary(activeEmployee.id, salaryMonth); }} style={attendanceTab === 'salary' ? sidebarLinkActiveStyle : sidebarLinkStyle}><Award size={18} /><span>Salary</span></button>
-            
-              <button onClick={() => { setAttendanceTab('reimbursement'); loadReimbursements(activeEmployee.id); }} style={attendanceTab === 'reimbursement' ? sidebarLinkActiveStyle : sidebarLinkStyle}><CreditCard size={18} /><span>Reimbursement</span></button>
-              <button onClick={() => { setAttendanceTab('resignation'); loadEmployeeResignation(activeEmployee.id); }} style={attendanceTab === 'resignation' ? sidebarLinkActiveStyle : sidebarLinkStyle}><UserMinus size={18} /><span>Resignation</span></button>
+              <button onClick={() => setAttendanceTab('overview')} className={attendanceTab === 'overview' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'overview' ? sidebarLinkActiveStyle : sidebarLinkStyle}><LayoutDashboard size={18} /><span>Overview</span></button>
+              <button onClick={() => { setAttendanceTab('attendance'); loadTodayAttendance(activeEmployee.id); loadAttendanceHistory(activeEmployee.id); }} className={attendanceTab === 'attendance' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'attendance' ? sidebarLinkActiveStyle : sidebarLinkStyle}><Clock size={18} /><span>Attendance</span></button>
+              <button onClick={() => { setAttendanceTab('leave'); loadEmployeeLeaves(activeEmployee.id); }} className={attendanceTab === 'leave' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'leave' ? sidebarLinkActiveStyle : sidebarLinkStyle}><CalendarDays size={18} /><span>Leave</span></button>
+              <button onClick={() => { setAttendanceTab('salary'); computeSalary(activeEmployee.id, salaryMonth); }} className={attendanceTab === 'salary' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'salary' ? sidebarLinkActiveStyle : sidebarLinkStyle}><Award size={18} /><span>Salary</span></button>
+              <button onClick={() => { setAttendanceTab('reimbursement'); loadReimbursements(activeEmployee.id); }} className={attendanceTab === 'reimbursement' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'reimbursement' ? sidebarLinkActiveStyle : sidebarLinkStyle}><CreditCard size={18} /><span>Reimbursement</span></button>
+              <button onClick={() => { setAttendanceTab('resignation'); loadEmployeeResignation(activeEmployee.id); }} className={attendanceTab === 'resignation' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'resignation' ? sidebarLinkActiveStyle : sidebarLinkStyle}><UserMinus size={18} /><span>Resignation</span></button>
               {(isNewJoiner(activeEmployee) || myOfferLetter?.data) && (
-                <button onClick={() => { setAttendanceTab('offer-letter'); loadEmployeeOfferLetter(activeEmployee.id); }} style={attendanceTab === 'offer-letter' ? sidebarLinkActiveStyle : sidebarLinkStyle}><FileCheck size={18} /><span>Offer Letter</span></button>
+                <button onClick={() => { setAttendanceTab('offer-letter'); loadEmployeeOfferLetter(activeEmployee.id); }} className={attendanceTab === 'offer-letter' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'offer-letter' ? sidebarLinkActiveStyle : sidebarLinkStyle}><FileCheck size={18} /><span>Offer Letter</span></button>
               )}
             </nav>
             <div style={sidebarUserStyle}>
@@ -6385,8 +6386,8 @@ const loginWrapperStyle = { display: 'flex', alignItems: 'center', justifyConten
 const sidebarStyle = { width: '260px', height: '100vh', background: 'linear-gradient(180deg, #0a1628 0%, #0f1f3d 100%)', borderRight: '1px solid rgba(200,146,42,0.2)', display: 'flex', flexDirection: 'column', position: 'sticky', top: 0, flexShrink: 0 };
 const sidebarHeaderStyle = { padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', borderBottom: '1px solid var(--border-color)' };
 const sidebarNavStyle = { padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', flexGrow: 1 };
-const sidebarLinkStyle = { display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', color: 'var(--color-text-secondary)', fontWeight: 500, fontSize: '0.9rem', transition: 'all 0.15s ease', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer' };
-const sidebarLinkActiveStyle = { ...sidebarLinkStyle, color: '#c8922a', backgroundColor: 'rgba(200,146,42,0.1)', borderLeft: '3px solid #c8922a', borderRadius: '0 8px 8px 0', fontWeight: 700 };
+const sidebarLinkStyle = { display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', color: '#94a3b8', fontWeight: 500, fontSize: '0.9rem', transition: 'all 0.15s ease', textAlign: 'left', backgroundColor: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', boxShadow: 'none' };
+const sidebarLinkActiveStyle = { ...sidebarLinkStyle, color: '#e0a832', backgroundColor: 'rgba(200,146,42,0.15)', borderLeft: '3px solid #c8922a', borderRadius: '0 8px 8px 0', fontWeight: 700 };
 const sidebarUserStyle = { padding: '1rem 1.25rem', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', backgroundColor: '#060910' };
 const logoutButtonStyle = { padding: '6px', borderRadius: '6px', color: 'var(--color-text-secondary)', border: 'none', background: 'none', cursor: 'pointer' };
 const badgeCountStyle = { marginLeft: 'auto', fontSize: '0.7rem', fontWeight: 700, padding: '2px 6px', borderRadius: '10px', backgroundColor: '#c8922a', color: '#0a1628' };
