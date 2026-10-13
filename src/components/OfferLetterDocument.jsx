@@ -269,10 +269,37 @@ export const OfferLetterDocument = ({ data, id = 'tosbs-offer-letter-doc' }) => 
               We welcome you to pursuit of excellence and wish you a very rewarding and satisfying career with us.
             </p>
 
-            <div style={{ margin: '20px 0 35px 0' }}>
-              <p style={{ margin: 0, fontWeight: 700 }}>For TOSBS Advisors Private Limited!</p>
-              <div style={{ height: '35px' }}></div>
-              <p style={{ margin: 0, fontWeight: 700 }}>Senior Manager – Human Resources</p>
+            <div style={{ margin: '15px 0 25px 0' }}>
+              <p style={{ margin: '0 0 4px 0', fontWeight: 700 }}>For TOSBS Advisors Private Limited</p>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '82px', margin: '4px 0' }}>
+                <img
+                  src="/tosbs_stamp.png"
+                  alt="TOSBS Official Stamp"
+                  style={{
+                    height: '82px',
+                    width: 'auto',
+                    objectFit: 'contain',
+                    opacity: 0.92,
+                    transform: 'rotate(-4deg)',
+                    pointerEvents: 'none'
+                  }}
+                />
+                <img
+                  src="/tosbs_signature.png"
+                  alt="Authorized Signatory"
+                  style={{
+                    height: '62px',
+                    width: 'auto',
+                    objectFit: 'contain',
+                    marginLeft: '-35px',
+                    marginTop: '6px',
+                    position: 'relative',
+                    zIndex: 2,
+                    pointerEvents: 'none'
+                  }}
+                />
+              </div>
+              <p style={{ margin: '4px 0 0 0', fontWeight: 700 }}>Senior Manager – Human Resources</p>
             </div>
 
             <div style={{ borderTop: '1px dashed #9ca3af', paddingTop: '15px' }}>
@@ -377,10 +404,44 @@ export const OfferLetterDocument = ({ data, id = 'tosbs-offer-letter-doc' }) => 
             <strong>Note:</strong> Performance incentives of Long-Term Incentives (if applicable) will be governed by the existing individual policies prevailing at the unit level.
           </p>
 
-          <div style={{ borderTop: '1px dashed #9ca3af', paddingTop: '15px' }}>
-            <p style={{ margin: '0 0 15px 0', fontWeight: 700 }}>Understood and Accepted:</p>
-            <p style={{ margin: '0 0 8px 0' }}>Candidate Name: ____________________________________</p>
-            <p style={{ margin: 0 }}>Date: ________________________</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px dashed #9ca3af', paddingTop: '15px' }}>
+            <div>
+              <p style={{ margin: '0 0 15px 0', fontWeight: 700 }}>Understood and Accepted:</p>
+              <p style={{ margin: '0 0 8px 0' }}>Candidate Name: ____________________________________</p>
+              <p style={{ margin: 0 }}>Date: ________________________</p>
+            </div>
+            <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+              <p style={{ margin: '0 0 4px 0', fontWeight: 700 }}>For TOSBS Advisors Private Limited</p>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '65px', margin: '2px 0' }}>
+                <img
+                  src="/tosbs_stamp.png"
+                  alt="TOSBS Official Stamp"
+                  style={{
+                    height: '65px',
+                    width: 'auto',
+                    objectFit: 'contain',
+                    opacity: 0.92,
+                    transform: 'rotate(-4deg)',
+                    pointerEvents: 'none'
+                  }}
+                />
+                <img
+                  src="/tosbs_signature.png"
+                  alt="Authorized Signatory"
+                  style={{
+                    height: '50px',
+                    width: 'auto',
+                    objectFit: 'contain',
+                    marginLeft: '-28px',
+                    marginTop: '4px',
+                    position: 'relative',
+                    zIndex: 2,
+                    pointerEvents: 'none'
+                  }}
+                />
+              </div>
+              <p style={{ margin: '2px 0 0 0', fontWeight: 700 }}>Authorized Signatory</p>
+            </div>
           </div>
         </div>
         {footerRender()}
