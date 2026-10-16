@@ -5,6 +5,9 @@ import LineChart from './components/LineChart';
 import DigiLockerModal from './components/DigiLockerModal';
 import OfferLetterModal from './components/OfferLetterModal';
 import OfferLetterDocument from './components/OfferLetterDocument';
+import ExitLetterModal from './components/ExitLetterModal';
+import RelievingLetterDocument from './components/RelievingLetterDocument';
+import ExperienceLetterDocument from './components/ExperienceLetterDocument';
 import PayslipModal from './components/PayslipModal';
 import { saveAs } from "file-saver";
 import {
@@ -152,6 +155,21 @@ function App() {
   const [myOfferLetter, setMyOfferLetter] = useState(null);
   const [offerLetterSearch, setOfferLetterSearch] = useState('');
   const [offerLetterFilter, setOfferLetterFilter] = useState('new_joiners'); // 'new_joiners' | 'pending' | 'issued' | 'all'
+
+  // Relieving & Experience Letter State
+  const [isExitLetterModalOpen, setIsExitLetterModalOpen] = useState(false);
+  const [exitLetterType, setExitLetterType] = useState('relieving'); // 'relieving' | 'experience'
+  const [selectedExitLetterEmployee, setSelectedExitLetterEmployee] = useState(null);
+  const [selectedExitLetterData, setSelectedExitLetterData] = useState(null);
+  const [isExitLetterHrMode, setIsExitLetterHrMode] = useState(false);
+  const [relievingLettersMap, setRelievingLettersMap] = useState({});
+  const [experienceLettersMap, setExperienceLettersMap] = useState({});
+  const [myRelievingLetter, setMyRelievingLetter] = useState(null);
+  const [myExperienceLetter, setMyExperienceLetter] = useState(null);
+  const [relievingLetterSearch, setRelievingLetterSearch] = useState('');
+  const [relievingLetterFilter, setRelievingLetterFilter] = useState('all'); // 'all' | 'issued' | 'pending' | 'resigned'
+  const [experienceLetterSearch, setExperienceLetterSearch] = useState('');
+  const [experienceLetterFilter, setExperienceLetterFilter] = useState('all'); // 'all' | 'issued' | 'pending' | 'resigned'
 
   // Payslip Modal State
   const [isPayslipModalOpen, setIsPayslipModalOpen] = useState(false);
@@ -303,7 +321,14 @@ function App() {
     } catch (err) { console.error('Error loading employees:', err); }
   };
 
-  useEffect(() => { if (hrUser) { loadEmployees(); loadAllOfferLetters(); loadHrNotes(); } }, [hrUser]);
+  useEffect(() => { if (hrUser) { loadEmployees(); loadAllOfferLetters(); loadAllExitLetters(); loadHrNotes(); } }, [hrUser]);
+
+  useEffect(() => {
+    if (activeEmployee?.id) {
+      loadEmployeeOfferLetter(activeEmployee.id);
+      loadEmployeeExitLetters(activeEmployee.id);
+    }
+  }, [activeEmployee?.id]);
 
   const validateInviteToken = async (tokenInput) => {
     if (!tokenInput) return;
@@ -1025,13 +1050,37 @@ const handleHrLogin = (e) => {
       const pendingData = forceWfh ? wfhPendingData : { lat, lng, dist, now, today, type };
 
       if (pendingData.type === 'in') {
-        const { data, error } = await supabase.from('attendance').insert({
-          employee_id: activeEmployee.id, date: pendingData.today, check_in_time: pendingData.now, check_in_photo: attendancePhoto,
-          check_in_lat: pendingData.lat, check_in_lng: pendingData.lng, check_in_distance_m: pendingData.dist,
-          status: 'present', work_type: workType, wfh_reason: pendingData.reason || null,
-        }).select().single();
-        if (error) throw error;
-        setTodayAttendance(data);
+        let resultData;
+        if (todayAttendance?.id) {
+          const { data, error } = await supabase.from('attendance').update({
+            check_in_time: pendingData.now,
+            check_in_photo: attendancePhoto,
+            check_in_lat: pendingData.lat,
+            check_in_lng: pendingData.lng,
+            check_in_distance_m: pendingData.dist,
+            status: 'present',
+            work_type: workType,
+            wfh_reason: pendingData.reason || null,
+          }).eq('id', todayAttendance.id).select().single();
+          if (error) throw error;
+          resultData = data;
+        } else {
+          const { data, error } = await supabase.from('attendance').insert({
+            employee_id: activeEmployee.id,
+            date: pendingData.today,
+            check_in_time: pendingData.now,
+            check_in_photo: attendancePhoto,
+            check_in_lat: pendingData.lat,
+            check_in_lng: pendingData.lng,
+            check_in_distance_m: pendingData.dist,
+            status: 'present',
+            work_type: workType,
+            wfh_reason: pendingData.reason || null,
+          }).select().single();
+          if (error) throw error;
+          resultData = data;
+        }
+        setTodayAttendance(resultData);
 
         if (forceWfh) {
           try {
@@ -2258,6 +2307,39 @@ const loadReimbursements = async (empId) => {
     }
   };
 
+  const loadAllExitLetters = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('employee_documents')
+        .select('*')
+        .in('document_type', ['relieving_letter', 'experience_letter']);
+      if (error) throw error;
+      const relMap = {};
+      const expMap = {};
+      (data || []).forEach(doc => {
+        try {
+          const parsed = typeof doc.file_url === 'string' && doc.file_url.startsWith('{') ? JSON.parse(doc.file_url) : null;
+          const rec = {
+            id: doc.id,
+            data: parsed,
+            created_at: doc.uploaded_at || doc.created_at
+          };
+          if (doc.document_type === 'relieving_letter') {
+            relMap[doc.employee_id] = rec;
+          } else if (doc.document_type === 'experience_letter') {
+            expMap[doc.employee_id] = rec;
+          }
+        } catch (e) {
+          console.error("Error parsing exit letter payload:", e);
+        }
+      });
+      setRelievingLettersMap(relMap);
+      setExperienceLettersMap(expMap);
+    } catch (err) {
+      console.error('Error loading exit letters:', err);
+    }
+  };
+
   const loadHrNotes = async () => {
     setHrNotesLoading(true);
     try {
@@ -2523,6 +2605,116 @@ const loadReimbursements = async (empId) => {
       console.error('Error saving offer letter:', err);
       throw err;
     }
+  };
+
+  const loadEmployeeExitLetters = async (empId) => {
+    if (!empId) return;
+    try {
+      const { data, error } = await supabase
+        .from('employee_documents')
+        .select('*')
+        .eq('employee_id', empId)
+        .in('document_type', ['relieving_letter', 'experience_letter']);
+      if (error) throw error;
+      (data || []).forEach(doc => {
+        try {
+          const parsed = typeof doc.file_url === 'string' && doc.file_url.startsWith('{') ? JSON.parse(doc.file_url) : null;
+          const rec = {
+            id: doc.id,
+            data: parsed,
+            created_at: doc.uploaded_at || doc.created_at
+          };
+          if (doc.document_type === 'relieving_letter') {
+            setMyRelievingLetter(rec);
+          } else if (doc.document_type === 'experience_letter') {
+            setMyExperienceLetter(rec);
+          }
+        } catch (e) {}
+      });
+    } catch (err) {
+      console.error('Error loading employee exit letters:', err);
+    }
+  };
+
+  const openHrExitLetterModal = async (emp, type = 'relieving') => {
+    setSelectedExitLetterEmployee(emp);
+    setExitLetterType(type);
+    setIsExitLetterHrMode(true);
+
+    const existing = type === 'relieving' ? relievingLettersMap[emp.id] : experienceLettersMap[emp.id];
+    if (existing && existing.data) {
+      setSelectedExitLetterData(existing.data);
+    } else {
+      let resignationRec = null;
+      try {
+        const { data: resData } = await supabase
+          .from('resignations')
+          .select('*')
+          .eq('employee_id', emp.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        resignationRec = resData;
+      } catch (e) {}
+
+      let details = null;
+      try {
+        const { data: dData } = await supabase
+          .from('employee_details')
+          .select('*')
+          .eq('employee_id', emp.id)
+          .maybeSingle();
+        details = dData;
+      } catch (e) {}
+
+      const d = new Date();
+      const day = String(d.getDate()).padStart(2, '0');
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      const defaultLetterDate = `${day}.${monthNames[d.getMonth()]}.${d.getFullYear()}`;
+
+      const formatDateSlash = (dStr) => {
+        if (!dStr) return '';
+        try {
+          const dt = new Date(dStr);
+          if (isNaN(dt.getTime())) return dStr;
+          const dy = String(dt.getDate()).padStart(2, '0');
+          return `${dy}/${monthNames[dt.getMonth()]}/${dt.getFullYear()}`;
+        } catch { return dStr; }
+      };
+
+      const formatDateDash = (dStr) => {
+        if (!dStr) return '';
+        try {
+          const dt = new Date(dStr);
+          if (isNaN(dt.getTime())) return dStr;
+          const dy = String(dt.getDate()).padStart(2, '0');
+          const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          return `${dy}-${shortMonths[dt.getMonth()]}-${dt.getFullYear()}`;
+        } catch { return dStr; }
+      };
+
+      const doj = details?.date_of_joining || emp.date_of_joining;
+      const lwd = resignationRec?.notice_end_date;
+      const resDate = resignationRec?.resignation_date || resignationRec?.created_at;
+
+      setSelectedExitLetterData({
+        candidateCode: emp.short_code || emp.employee_code || (emp.id ? `TOSBS${emp.id.slice(0, 4).toUpperCase()}` : 'TOSBS20'),
+        fullName: emp.full_name || '',
+        designation: emp.position || emp.job_title || 'Associate',
+        department: emp.department || 'Operations',
+        joiningDate: type === 'experience' ? (doj ? formatDateDash(doj) : '24-Nov-2025') : (doj ? formatDateSlash(doj) : '24/November/2025'),
+        lastWorkingDay: type === 'experience' ? (lwd ? formatDateDash(lwd) : formatDateDash(new Date())) : (lwd ? formatDateSlash(lwd) : formatDateSlash(new Date())),
+        resignationDate: resDate ? formatDateSlash(resDate) : formatDateSlash(new Date()),
+        pronoun: details?.gender === 'male' ? 'He' : details?.gender === 'female' ? 'She' : 'She',
+        letterDate: defaultLetterDate,
+        signatoryTitle: 'Manager – Human Resource',
+      });
+    }
+
+    setIsExitLetterModalOpen(true);
   };
 
   const handleDigiLockerSuccess = (verifiedData) => setDigiLockerDetails(verifiedData);
@@ -3060,6 +3252,12 @@ const loadReimbursements = async (empId) => {
               </button>
               <button onClick={() => { setHrActiveTab('offer-letters'); loadAllOfferLetters(); }} className={hrActiveTab === 'offer-letters' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'offer-letters' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <FileCheck size={18} /><span>Offer Letters</span>
+              </button>
+              <button onClick={() => { setHrActiveTab('relieving-letters'); loadAllExitLetters(); }} className={hrActiveTab === 'relieving-letters' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'relieving-letters' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+                <FileText size={18} /><span>Relieving Letters</span>
+              </button>
+              <button onClick={() => { setHrActiveTab('experience-letters'); loadAllExitLetters(); }} className={hrActiveTab === 'experience-letters' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'experience-letters' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+                <Award size={18} /><span>Experience Letters</span>
               </button>
               <button onClick={() => { setHrActiveTab('notes'); loadHrNotes(); }} className={hrActiveTab === 'notes' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'notes' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <StickyNote size={18} /><span>HR Notes</span>
@@ -4039,16 +4237,72 @@ const loadReimbursements = async (empId) => {
                             </div>
                           )}
 
-                          {/* Active / Notice Over Manual Deactivate Button */}
-                          {(isServingNotice || isNoticeOver) && (
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
-                              <button
-                                onClick={() => handleDeactivateResignedEmployee(r.id, r.employee_id)}
-                                className="btn btn-danger"
-                                style={{ fontSize: '0.75rem', padding: '0.35rem 0.85rem' }}
-                              >
-                                🔒 Early Deactivate Account
-                              </button>
+                          {/* Quick Generate Relieving & Experience Letter buttons */}
+                          {(isServingNotice || isNoticeOver || r.status === 'approved' || r.status === 'deactivated') && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                                {/* Relieving Letter Button */}
+                                {relievingLettersMap[r.employee_id]?.data ? (
+                                  <button
+                                    onClick={() => {
+                                      const empObj = employees.find(e => e.id === r.employee_id) || { id: r.employee_id, full_name: r.profiles?.full_name, position: r.profiles?.position, notice_end_date: r.notice_end_date, resignation_date: r.resignation_date || r.created_at };
+                                      openHrExitLetterModal(empObj, 'relieving');
+                                    }}
+                                    className="btn btn-secondary"
+                                    style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                    title="View or Edit Relieving Letter"
+                                  >
+                                    <FileText size={13} color="var(--color-success)" /> Relieving Letter (Issued ✓)
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      const empObj = employees.find(e => e.id === r.employee_id) || { id: r.employee_id, full_name: r.profiles?.full_name, position: r.profiles?.position, notice_end_date: r.notice_end_date, resignation_date: r.resignation_date || r.created_at };
+                                      openHrExitLetterModal(empObj, 'relieving');
+                                    }}
+                                    className="btn btn-primary"
+                                    style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                  >
+                                    <FileText size={13} /> + Relieving Letter
+                                  </button>
+                                )}
+
+                                {/* Experience Letter Button */}
+                                {experienceLettersMap[r.employee_id]?.data ? (
+                                  <button
+                                    onClick={() => {
+                                      const empObj = employees.find(e => e.id === r.employee_id) || { id: r.employee_id, full_name: r.profiles?.full_name, position: r.profiles?.position, notice_end_date: r.notice_end_date };
+                                      openHrExitLetterModal(empObj, 'experience');
+                                    }}
+                                    className="btn btn-secondary"
+                                    style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                    title="View or Edit Experience Letter"
+                                  >
+                                    <Award size={13} color="var(--color-success)" /> Experience Letter (Issued ✓)
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      const empObj = employees.find(e => e.id === r.employee_id) || { id: r.employee_id, full_name: r.profiles?.full_name, position: r.profiles?.position, notice_end_date: r.notice_end_date };
+                                      openHrExitLetterModal(empObj, 'experience');
+                                    }}
+                                    className="btn btn-primary"
+                                    style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                  >
+                                    <Award size={13} /> + Experience Letter
+                                  </button>
+                                )}
+                              </div>
+
+                              {(isServingNotice || isNoticeOver) && (
+                                <button
+                                  onClick={() => handleDeactivateResignedEmployee(r.id, r.employee_id)}
+                                  className="btn btn-danger"
+                                  style={{ fontSize: '0.75rem', padding: '0.35rem 0.85rem' }}
+                                >
+                                  🔒 Early Deactivate Account
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -4085,6 +4339,67 @@ const loadReimbursements = async (empId) => {
 
               return (
                 <div>
+                  {/* Letter Category Sub-tabs */}
+                  <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => { setHrActiveTab('offer-letters'); loadAllOfferLetters(); }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0.45rem 0.9rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        border: 'none',
+                        cursor: 'pointer',
+                        backgroundColor: 'var(--color-orange, #c8922a)',
+                        color: '#0a1628'
+                      }}
+                    >
+                      <FileCheck size={16} /> Offer Letters ({issuedCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setHrActiveTab('relieving-letters'); loadAllExitLetters(); }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0.45rem 0.9rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        border: 'none',
+                        cursor: 'pointer',
+                        backgroundColor: 'var(--bg-secondary)',
+                        color: 'var(--color-text-secondary)'
+                      }}
+                    >
+                      <FileText size={16} /> Relieving Letters ({Object.keys(relievingLettersMap).length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setHrActiveTab('experience-letters'); loadAllExitLetters(); }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0.45rem 0.9rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        border: 'none',
+                        cursor: 'pointer',
+                        backgroundColor: 'var(--bg-secondary)',
+                        color: 'var(--color-text-secondary)'
+                      }}
+                    >
+                      <Award size={16} /> Experience Letters ({Object.keys(experienceLettersMap).length})
+                    </button>
+                  </div>
+
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
                     <div className="glass-card" style={statCardStyle}>
                       <p style={statLabelStyle}>ELIGIBLE NEW JOINERS</p>
@@ -4264,6 +4579,580 @@ const loadReimbursements = async (empId) => {
                                       ) : (
                                         <button
                                           onClick={() => openHrOfferLetterModal(emp)}
+                                          className="btn btn-primary"
+                                          style={{ fontSize: '0.75rem', padding: '0.35rem 0.85rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                        >
+                                          <Plus size={14} /> Generate
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {hrActiveTab === 'relieving-letters' && (() => {
+              const resignedEmpIds = new Set([
+                ...employees.filter(e => e.status === 'resigned').map(e => e.id),
+                ...hrResignations.map(r => r.employee_id)
+              ]);
+              const resignedEmployees = employees.filter(e => resignedEmpIds.has(e.id));
+              const issuedCount = Object.keys(relievingLettersMap).length;
+              const pendingCount = resignedEmployees.filter(e => !relievingLettersMap[e.id]?.data).length;
+
+              const displayedEmployees = employees.filter(emp => {
+                if (relievingLetterSearch) {
+                  const q = relievingLetterSearch.toLowerCase();
+                  const matchesSearch = (emp.full_name || '').toLowerCase().includes(q) ||
+                    (emp.short_code || '').toLowerCase().includes(q) ||
+                    (emp.position || '').toLowerCase().includes(q) ||
+                    (emp.email || '').toLowerCase().includes(q);
+                  if (!matchesSearch) return false;
+                }
+
+                const isResigned = resignedEmpIds.has(emp.id);
+                const hasLetter = !!(relievingLettersMap[emp.id]?.data);
+
+                if (relievingLetterFilter === 'resigned') return isResigned;
+                if (relievingLetterFilter === 'pending') return isResigned && !hasLetter;
+                if (relievingLetterFilter === 'issued') return hasLetter;
+                return true; // 'all'
+              });
+
+              return (
+                <div>
+                  {/* Letter Category Sub-tabs */}
+                  <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => { setHrActiveTab('offer-letters'); loadAllOfferLetters(); }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0.45rem 0.9rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        border: 'none',
+                        cursor: 'pointer',
+                        backgroundColor: 'var(--bg-secondary)',
+                        color: 'var(--color-text-secondary)'
+                      }}
+                    >
+                      <FileCheck size={16} /> Offer Letters ({Object.keys(offerLettersMap).length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setHrActiveTab('relieving-letters'); loadAllExitLetters(); }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0.45rem 0.9rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        border: 'none',
+                        cursor: 'pointer',
+                        backgroundColor: 'var(--color-orange, #c8922a)',
+                        color: '#0a1628'
+                      }}
+                    >
+                      <FileText size={16} /> Relieving Letters ({issuedCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setHrActiveTab('experience-letters'); loadAllExitLetters(); }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0.45rem 0.9rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        border: 'none',
+                        cursor: 'pointer',
+                        backgroundColor: 'var(--bg-secondary)',
+                        color: 'var(--color-text-secondary)'
+                      }}
+                    >
+                      <Award size={16} /> Experience Letters ({Object.keys(experienceLettersMap).length})
+                    </button>
+                  </div>
+
+                  {/* Summary Metric Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
+                    <div className="glass-card" style={statCardStyle}>
+                      <p style={statLabelStyle}>RESIGNED / OFFBOARDING</p>
+                      <p style={{ ...statValStyle, color: 'var(--color-text-primary)' }}>{resignedEmployees.length}</p>
+                      <p style={statSubStyle}>Employees with resignation records</p>
+                    </div>
+                    <div className="glass-card" style={statCardStyle}>
+                      <p style={statLabelStyle}>RELIEVING LETTERS ISSUED</p>
+                      <p style={{ ...statValStyle, color: 'var(--color-success)' }}>{issuedCount}</p>
+                      <p style={statSubStyle}>Official letters stored in database</p>
+                    </div>
+                    <div className="glass-card" style={statCardStyle}>
+                      <p style={statLabelStyle}>PENDING ISSUANCE</p>
+                      <p style={{ ...statValStyle, color: 'var(--color-orange)' }}>{pendingCount}</p>
+                      <p style={statSubStyle}>Resigned staff awaiting relieving letter</p>
+                    </div>
+                  </div>
+
+                  <div className="glass-card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: '260px', flexWrap: 'wrap' }}>
+                        <div style={{ position: 'relative', width: '100%', maxWidth: '320px' }}>
+                          <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+                          <input
+                            type="text"
+                            placeholder="Search employee name, code, or role..."
+                            value={relievingLetterSearch}
+                            onChange={(e) => setRelievingLetterSearch(e.target.value)}
+                            className="form-input"
+                            style={{ paddingLeft: '2.5rem', width: '100%' }}
+                          />
+                        </div>
+
+                        {/* Filter Tabs */}
+                        <div style={{ display: 'flex', backgroundColor: 'var(--bg-tertiary)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border-color)', gap: '4px' }}>
+                          {[
+                            { id: 'resigned', label: `📋 Resigned (${resignedEmployees.length})` },
+                            { id: 'pending', label: `⏳ Pending (${pendingCount})` },
+                            { id: 'issued', label: `✓ Issued (${issuedCount})` },
+                            { id: 'all', label: `👥 All (${employees.length})` }
+                          ].map(tab => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setRelievingLetterFilter(tab.id)}
+                              style={{
+                                padding: '5px 12px',
+                                fontSize: '0.78rem',
+                                fontWeight: relievingLetterFilter === tab.id ? 700 : 500,
+                                borderRadius: '6px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                backgroundColor: relievingLetterFilter === tab.id ? '#c8922a' : 'transparent',
+                                color: relievingLetterFilter === tab.id ? '#0a1628' : 'var(--color-text-secondary)',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <button
+                        onClick={loadAllExitLetters}
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.85rem' }}
+                      >
+                        ↻ Refresh Records
+                      </button>
+                    </div>
+
+                    <div className="table-container">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Candidate / Employee</th>
+                            <th>Employee Code</th>
+                            <th>Designation & Dept</th>
+                            <th>Status</th>
+                            <th>Relieving Letter Status</th>
+                            <th>Last Generated</th>
+                            <th style={{ textAlign: 'right' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {displayedEmployees.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--color-text-muted)' }}>
+                                No employees match the selected filter.
+                              </td>
+                            </tr>
+                          ) : (
+                            displayedEmployees.map(emp => {
+                              const letter = relievingLettersMap[emp.id];
+                              const hasLetter = !!(letter && letter.data);
+                              const isResigned = resignedEmpIds.has(emp.id);
+                              return (
+                                <tr key={emp.id}>
+                                  <td>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                      <div className="avatar-circle" style={{ width: '36px', height: '36px', fontSize: '0.9rem' }}>
+                                        {emp.full_name?.charAt(0) || 'E'}
+                                      </div>
+                                      <div>
+                                        <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem' }}>{emp.full_name}</p>
+                                        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{emp.email}</p>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td>
+                                    <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-orange)', backgroundColor: 'rgba(200,146,42,0.1)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.85rem' }}>
+                                      {emp.short_code || (letter?.data?.candidateCode) || '—'}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <p style={{ margin: 0, fontSize: '0.88rem', fontWeight: 500 }}>{emp.position || '—'}</p>
+                                    <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{emp.department || 'Operations'}</p>
+                                  </td>
+                                  <td>
+                                    {isResigned ? (
+                                      <span className="badge" style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', fontSize: '0.72rem' }}>
+                                        Resigned / Relieved
+                                      </span>
+                                    ) : (
+                                      <span className="badge badge-success" style={{ fontSize: '0.72rem' }}>
+                                        Active
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    {hasLetter ? (
+                                      <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                        <CheckCircle2 size={13} /> Issued
+                                      </span>
+                                    ) : (
+                                      <span className="badge" style={{ backgroundColor: 'rgba(100,116,139,0.15)', color: '#64748b' }}>
+                                        Not Generated
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                      {letter?.created_at ? new Date(letter.created_at).toLocaleDateString('en-IN') : '—'}
+                                    </span>
+                                  </td>
+                                  <td style={{ textAlign: 'right' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                                      {hasLetter ? (
+                                        <>
+                                          <button
+                                            onClick={() => {
+                                              setSelectedExitLetterEmployee(emp);
+                                              setSelectedExitLetterData(letter.data);
+                                              setExitLetterType('relieving');
+                                              setIsExitLetterHrMode(false);
+                                              setIsExitLetterModalOpen(true);
+                                            }}
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                            title="View, Print & Download"
+                                          >
+                                            <Eye size={14} /> View / Print
+                                          </button>
+                                          <button
+                                            onClick={() => openHrExitLetterModal(emp, 'relieving')}
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
+                                            title="Edit details and regenerate"
+                                          >
+                                            Edit ✎
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <button
+                                          onClick={() => openHrExitLetterModal(emp, 'relieving')}
+                                          className="btn btn-primary"
+                                          style={{ fontSize: '0.75rem', padding: '0.35rem 0.85rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                        >
+                                          <Plus size={14} /> Generate
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {hrActiveTab === 'experience-letters' && (() => {
+              const resignedEmpIds = new Set([
+                ...employees.filter(e => e.status === 'resigned').map(e => e.id),
+                ...hrResignations.map(r => r.employee_id)
+              ]);
+              const resignedEmployees = employees.filter(e => resignedEmpIds.has(e.id));
+              const issuedCount = Object.keys(experienceLettersMap).length;
+              const pendingCount = resignedEmployees.filter(e => !experienceLettersMap[e.id]?.data).length;
+
+              const displayedEmployees = employees.filter(emp => {
+                if (experienceLetterSearch) {
+                  const q = experienceLetterSearch.toLowerCase();
+                  const matchesSearch = (emp.full_name || '').toLowerCase().includes(q) ||
+                    (emp.short_code || '').toLowerCase().includes(q) ||
+                    (emp.position || '').toLowerCase().includes(q) ||
+                    (emp.email || '').toLowerCase().includes(q);
+                  if (!matchesSearch) return false;
+                }
+
+                const isResigned = resignedEmpIds.has(emp.id);
+                const hasLetter = !!(experienceLettersMap[emp.id]?.data);
+
+                if (experienceLetterFilter === 'resigned') return isResigned;
+                if (experienceLetterFilter === 'pending') return isResigned && !hasLetter;
+                if (experienceLetterFilter === 'issued') return hasLetter;
+                return true; // 'all'
+              });
+
+              return (
+                <div>
+                  {/* Letter Category Sub-tabs */}
+                  <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => { setHrActiveTab('offer-letters'); loadAllOfferLetters(); }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0.45rem 0.9rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        border: 'none',
+                        cursor: 'pointer',
+                        backgroundColor: 'var(--bg-secondary)',
+                        color: 'var(--color-text-secondary)'
+                      }}
+                    >
+                      <FileCheck size={16} /> Offer Letters ({Object.keys(offerLettersMap).length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setHrActiveTab('relieving-letters'); loadAllExitLetters(); }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0.45rem 0.9rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        border: 'none',
+                        cursor: 'pointer',
+                        backgroundColor: 'var(--bg-secondary)',
+                        color: 'var(--color-text-secondary)'
+                      }}
+                    >
+                      <FileText size={16} /> Relieving Letters ({Object.keys(relievingLettersMap).length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setHrActiveTab('experience-letters'); loadAllExitLetters(); }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0.45rem 0.9rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        border: 'none',
+                        cursor: 'pointer',
+                        backgroundColor: 'var(--color-orange, #c8922a)',
+                        color: '#0a1628'
+                      }}
+                    >
+                      <Award size={16} /> Experience Letters ({issuedCount})
+                    </button>
+                  </div>
+
+                  {/* Summary Metric Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
+                    <div className="glass-card" style={statCardStyle}>
+                      <p style={statLabelStyle}>TOTAL EMPLOYEES</p>
+                      <p style={{ ...statValStyle, color: 'var(--color-text-primary)' }}>{employees.length}</p>
+                      <p style={statSubStyle}>Active and offboarded staff</p>
+                    </div>
+                    <div className="glass-card" style={statCardStyle}>
+                      <p style={statLabelStyle}>EXPERIENCE LETTERS ISSUED</p>
+                      <p style={{ ...statValStyle, color: 'var(--color-success)' }}>{issuedCount}</p>
+                      <p style={statSubStyle}>Official certificates stored in database</p>
+                    </div>
+                    <div className="glass-card" style={statCardStyle}>
+                      <p style={statLabelStyle}>RESIGNED AWAITING CERTIFICATE</p>
+                      <p style={{ ...statValStyle, color: 'var(--color-orange)' }}>{pendingCount}</p>
+                      <p style={statSubStyle}>Pending experience letter generation</p>
+                    </div>
+                  </div>
+
+                  <div className="glass-card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: '260px', flexWrap: 'wrap' }}>
+                        <div style={{ position: 'relative', width: '100%', maxWidth: '320px' }}>
+                          <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+                          <input
+                            type="text"
+                            placeholder="Search employee name, code, or role..."
+                            value={experienceLetterSearch}
+                            onChange={(e) => setExperienceLetterSearch(e.target.value)}
+                            className="form-input"
+                            style={{ paddingLeft: '2.5rem', width: '100%' }}
+                          />
+                        </div>
+
+                        {/* Filter Tabs */}
+                        <div style={{ display: 'flex', backgroundColor: 'var(--bg-tertiary)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border-color)', gap: '4px' }}>
+                          {[
+                            { id: 'resigned', label: `📋 Resigned (${resignedEmployees.length})` },
+                            { id: 'pending', label: `⏳ Pending (${pendingCount})` },
+                            { id: 'issued', label: `✓ Issued (${issuedCount})` },
+                            { id: 'all', label: `👥 All (${employees.length})` }
+                          ].map(tab => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setExperienceLetterFilter(tab.id)}
+                              style={{
+                                padding: '5px 12px',
+                                fontSize: '0.78rem',
+                                fontWeight: experienceLetterFilter === tab.id ? 700 : 500,
+                                borderRadius: '6px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                backgroundColor: experienceLetterFilter === tab.id ? '#c8922a' : 'transparent',
+                                color: experienceLetterFilter === tab.id ? '#0a1628' : 'var(--color-text-secondary)',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <button
+                        onClick={loadAllExitLetters}
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.85rem' }}
+                      >
+                        ↻ Refresh Records
+                      </button>
+                    </div>
+
+                    <div className="table-container">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Candidate / Employee</th>
+                            <th>Employee Code</th>
+                            <th>Designation & Dept</th>
+                            <th>Status</th>
+                            <th>Experience Letter Status</th>
+                            <th>Last Generated</th>
+                            <th style={{ textAlign: 'right' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {displayedEmployees.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--color-text-muted)' }}>
+                                No employees match the selected filter.
+                              </td>
+                            </tr>
+                          ) : (
+                            displayedEmployees.map(emp => {
+                              const letter = experienceLettersMap[emp.id];
+                              const hasLetter = !!(letter && letter.data);
+                              const isResigned = resignedEmpIds.has(emp.id);
+                              return (
+                                <tr key={emp.id}>
+                                  <td>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                      <div className="avatar-circle" style={{ width: '36px', height: '36px', fontSize: '0.9rem' }}>
+                                        {emp.full_name?.charAt(0) || 'E'}
+                                      </div>
+                                      <div>
+                                        <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem' }}>{emp.full_name}</p>
+                                        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{emp.email}</p>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td>
+                                    <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-orange)', backgroundColor: 'rgba(200,146,42,0.1)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.85rem' }}>
+                                      {emp.short_code || (letter?.data?.candidateCode) || '—'}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <p style={{ margin: 0, fontSize: '0.88rem', fontWeight: 500 }}>{emp.position || '—'}</p>
+                                    <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{emp.department || 'Operations'}</p>
+                                  </td>
+                                  <td>
+                                    {isResigned ? (
+                                      <span className="badge" style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', fontSize: '0.72rem' }}>
+                                        Resigned / Relieved
+                                      </span>
+                                    ) : (
+                                      <span className="badge badge-success" style={{ fontSize: '0.72rem' }}>
+                                        Active
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    {hasLetter ? (
+                                      <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                        <CheckCircle2 size={13} /> Issued
+                                      </span>
+                                    ) : (
+                                      <span className="badge" style={{ backgroundColor: 'rgba(100,116,139,0.15)', color: '#64748b' }}>
+                                        Not Generated
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                      {letter?.created_at ? new Date(letter.created_at).toLocaleDateString('en-IN') : '—'}
+                                    </span>
+                                  </td>
+                                  <td style={{ textAlign: 'right' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                                      {hasLetter ? (
+                                        <>
+                                          <button
+                                            onClick={() => {
+                                              setSelectedExitLetterEmployee(emp);
+                                              setSelectedExitLetterData(letter.data);
+                                              setExitLetterType('experience');
+                                              setIsExitLetterHrMode(false);
+                                              setIsExitLetterModalOpen(true);
+                                            }}
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                            title="View, Print & Download"
+                                          >
+                                            <Eye size={14} /> View / Print
+                                          </button>
+                                          <button
+                                            onClick={() => openHrExitLetterModal(emp, 'experience')}
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
+                                            title="Edit details and regenerate"
+                                          >
+                                            Edit ✎
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <button
+                                          onClick={() => openHrExitLetterModal(emp, 'experience')}
                                           className="btn btn-primary"
                                           style={{ fontSize: '0.75rem', padding: '0.35rem 0.85rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                                         >
@@ -4724,6 +5613,8 @@ const loadReimbursements = async (empId) => {
             <div style={{ display: 'flex', gap: '0.75rem' }}>
               <button onClick={() => exportSingleEmployeeSheet(selectedEmp, selectedEmpDetails, selectedEmpVerification, selectedEmpDocs)} className="btn btn-secondary"><FileText size={16} /> Download as Excel</button>
               <button onClick={() => openHrOfferLetterModal(selectedEmp)} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><FileCheck size={16} /> Offer Letter</button>
+              <button onClick={() => openHrExitLetterModal(selectedEmp, 'relieving')} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><FileText size={16} /> Relieving Letter</button>
+              <button onClick={() => openHrExitLetterModal(selectedEmp, 'experience')} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><Award size={16} /> Experience Letter</button>
               {selectedEmp.status === 'digilocker_verified' && (
                 <button onClick={() => handleApproveOnboarding(selectedEmp.id)} className="btn btn-primary">Approve Onboarding ✓</button>
               )}
@@ -5286,6 +6177,12 @@ const loadReimbursements = async (empId) => {
               {(isNewJoiner(activeEmployee) || myOfferLetter?.data) && (
                 <button onClick={() => { setAttendanceTab('offer-letter'); loadEmployeeOfferLetter(activeEmployee.id); }} className={attendanceTab === 'offer-letter' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'offer-letter' ? sidebarLinkActiveStyle : sidebarLinkStyle}><FileCheck size={18} /><span>Offer Letter</span></button>
               )}
+              {myRelievingLetter?.data && (
+                <button onClick={() => { setAttendanceTab('relieving-letter'); }} className={attendanceTab === 'relieving-letter' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'relieving-letter' ? sidebarLinkActiveStyle : sidebarLinkStyle}><FileText size={18} /><span>Relieving Letter</span></button>
+              )}
+              {myExperienceLetter?.data && (
+                <button onClick={() => { setAttendanceTab('experience-letter'); }} className={attendanceTab === 'experience-letter' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'experience-letter' ? sidebarLinkActiveStyle : sidebarLinkStyle}><Award size={18} /><span>Experience Letter</span></button>
+              )}
             </nav>
             <div style={sidebarUserStyle}>
               <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem' }}>{activeEmployee.full_name?.charAt(0)}</div>
@@ -5537,6 +6434,43 @@ const loadReimbursements = async (empId) => {
                   </div>
                 )}
 
+                {/* Official Exit Documents Banner (If Issued) */}
+                {(myRelievingLetter?.data || myExperienceLetter?.data) && (
+                  <div className="glass-card" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', background: 'linear-gradient(135deg, rgba(16,185,129,0.08), rgba(16,185,129,0.02))', border: '1px solid rgba(16,185,129,0.25)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div style={{ width: '44px', height: '44px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Award size={24} color="#10b981" />
+                      </div>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Official Exit Documents Issued</h3>
+                        <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                          {[myRelievingLetter?.data && 'Relieving Letter', myExperienceLetter?.data && 'Experience Letter'].filter(Boolean).join(' & ')} available for viewing and PDF download.
+                        </p>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      {myRelievingLetter?.data && (
+                        <button
+                          onClick={() => setAttendanceTab('relieving-letter')}
+                          className="btn btn-secondary"
+                          style={{ fontSize: '0.82rem', padding: '0.45rem 0.9rem' }}
+                        >
+                          Relieving Letter ➔
+                        </button>
+                      )}
+                      {myExperienceLetter?.data && (
+                        <button
+                          onClick={() => setAttendanceTab('experience-letter')}
+                          className="btn btn-primary"
+                          style={{ fontSize: '0.82rem', padding: '0.45rem 0.9rem' }}
+                        >
+                          Experience Letter ➔
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
                   <h3 style={{ fontSize: '1rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>Onboarding Checklist</h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -5610,39 +6544,64 @@ const loadReimbursements = async (empId) => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 <div className="glass-card">
                   <h3 style={{ fontSize: '1rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>Today — {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</h3>
-                  {todayAttendance ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-                      <div style={{ padding: '1rem', backgroundColor: todayAttendance.work_type === 'wfh' ? 'rgba(245,158,11,0.08)' : 'rgba(16,185,129,0.08)', borderRadius: '10px', border: `1px solid ${todayAttendance.work_type === 'wfh' ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.2)'}` }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                          <p style={{ margin: 0, fontSize: '0.72rem', color: todayAttendance.work_type === 'wfh' ? 'var(--color-pending)' : 'var(--color-success)', fontWeight: 700, textTransform: 'uppercase' }}>
-                            {todayAttendance.work_type === 'wfh' ? '🏠 Checked In (WFH)' : '🏢 Checked In (Office)'}
-                          </p>
-                          <span className={`badge ${todayAttendance.work_type === 'wfh' ? 'badge-pending' : 'badge-success'}`} style={{ fontSize: '0.7rem' }}>
-                            {todayAttendance.work_type === 'wfh' ? 'WFH' : 'In Office'}
-                          </span>
-                        </div>
-                        <p style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-text-primary)' }}>{new Date(todayAttendance.check_in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
-                        <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{todayAttendance.check_in_distance_m}m from office</p>
-                        {todayAttendance.wfh_reason && <p style={{ margin: '4px 0 0', fontSize: '0.73rem', color: 'var(--color-pending)' }}>Reason: {todayAttendance.wfh_reason}</p>}
-                        {todayAttendance.check_in_photo && <img src={todayAttendance.check_in_photo} alt="In" style={{ width: '60px', height: '60px', borderRadius: '8px', objectFit: 'cover', marginTop: '0.75rem', transform: 'scaleX(-1)' }} />}
-                      </div>
-                      <div style={{ padding: '1rem', backgroundColor: todayAttendance.check_out_time ? 'rgba(59,130,246,0.08)' : 'rgba(0,0,0,0.025)', borderRadius: '10px', border: `1px solid ${todayAttendance.check_out_time ? 'rgba(59,130,246,0.2)' : 'var(--border-color)'}` }}>
-                        {todayAttendance.check_out_time ? (
-                          <>
-                            <p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', color: 'var(--color-info)', fontWeight: 700, textTransform: 'uppercase' }}>✓ Checked Out</p>
-                            <p style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-text-primary)' }}>{new Date(todayAttendance.check_out_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
-                            <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{todayAttendance.work_hours}h worked</p>
-                            {todayAttendance.check_out_photo && <img src={todayAttendance.check_out_photo} alt="Out" style={{ width: '60px', height: '60px', borderRadius: '8px', objectFit: 'cover', marginTop: '0.75rem', transform: 'scaleX(-1)' }} />}
-                          </>
-                        ) : (<><p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', color: 'var(--color-text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Not Checked Out</p><p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>Check out when you leave</p></>)}
-                      </div>
-                    </div>
-                  ) : <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>No attendance marked today.</p>}
+                  {(() => {
+                    const isCheckedIn = Boolean(todayAttendance && todayAttendance.check_in_time);
+                    const isCheckedOut = Boolean(todayAttendance && todayAttendance.check_out_time);
+
+                    return (
+                      <>
+                        {isCheckedIn ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                            <div style={{ padding: '1rem', backgroundColor: todayAttendance.work_type === 'wfh' ? 'rgba(245,158,11,0.08)' : 'rgba(16,185,129,0.08)', borderRadius: '10px', border: `1px solid ${todayAttendance.work_type === 'wfh' ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.2)'}` }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                                <p style={{ margin: 0, fontSize: '0.72rem', color: todayAttendance.work_type === 'wfh' ? 'var(--color-pending)' : 'var(--color-success)', fontWeight: 700, textTransform: 'uppercase' }}>
+                                  {todayAttendance.work_type === 'wfh' ? '🏠 Checked In (WFH)' : '🏢 Checked In (Office)'}
+                                </p>
+                                <span className={`badge ${todayAttendance.work_type === 'wfh' ? 'badge-pending' : 'badge-success'}`} style={{ fontSize: '0.7rem' }}>
+                                  {todayAttendance.work_type === 'wfh' ? 'WFH' : 'In Office'}
+                                </span>
+                              </div>
+                              <p style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                                {todayAttendance.check_in_time ? new Date(todayAttendance.check_in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                              </p>
+                              {todayAttendance.check_in_distance_m !== null && todayAttendance.check_in_distance_m !== undefined && (
+                                <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{todayAttendance.check_in_distance_m}m from office</p>
+                              )}
+                              {todayAttendance.wfh_reason && <p style={{ margin: '4px 0 0', fontSize: '0.73rem', color: 'var(--color-pending)' }}>Reason: {todayAttendance.wfh_reason}</p>}
+                              {todayAttendance.check_in_photo && <img src={todayAttendance.check_in_photo} alt="In" style={{ width: '60px', height: '60px', borderRadius: '8px', objectFit: 'cover', marginTop: '0.75rem', transform: 'scaleX(-1)' }} />}
+                            </div>
+                            <div style={{ padding: '1rem', backgroundColor: isCheckedOut ? 'rgba(59,130,246,0.08)' : 'rgba(0,0,0,0.025)', borderRadius: '10px', border: `1px solid ${isCheckedOut ? 'rgba(59,130,246,0.2)' : 'var(--border-color)'}` }}>
+                              {isCheckedOut ? (
+                                <>
+                                  <p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', color: 'var(--color-info)', fontWeight: 700, textTransform: 'uppercase' }}>✓ Checked Out</p>
+                                  <p style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-text-primary)' }}>{new Date(todayAttendance.check_out_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
+                                  <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{todayAttendance.work_hours}h worked</p>
+                                  {todayAttendance.check_out_photo && <img src={todayAttendance.check_out_photo} alt="Out" style={{ width: '60px', height: '60px', borderRadius: '8px', objectFit: 'cover', marginTop: '0.75rem', transform: 'scaleX(-1)' }} />}
+                                </>
+                              ) : (<><p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', color: 'var(--color-text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Not Checked Out</p><p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>Check out when you leave</p></>)}
+                            </div>
+                          </div>
+                        ) : todayAttendance && todayAttendance.status === 'leave' ? (
+                          <div style={{ padding: '1rem', backgroundColor: 'rgba(59,130,246,0.08)', borderRadius: '10px', border: '1px solid rgba(59,130,246,0.2)' }}>
+                            <p style={{ margin: 0, fontSize: '0.88rem', fontWeight: 600, color: 'var(--color-info)' }}>🏖️ On Leave Today</p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>Approved leave recorded for today.</p>
+                          </div>
+                        ) : todayAttendance && todayAttendance.status === 'absent' ? (
+                          <div style={{ padding: '1rem', backgroundColor: 'rgba(239,68,68,0.08)', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.2)' }}>
+                            <p style={{ margin: 0, fontSize: '0.88rem', fontWeight: 600, color: 'var(--color-danger)' }}>Marked as Absent</p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>You haven't checked in yet today. Use the button below to check in.</p>
+                          </div>
+                        ) : <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>No attendance marked today.</p>}
+                      </>
+                    );
+                  })()}
                 </div>
 
-                {(!todayAttendance || !todayAttendance.check_out_time) && (
+                {(!todayAttendance || !todayAttendance.check_in_time || !todayAttendance.check_out_time) && (
                   <div className="glass-card">
-                    <h3 style={{ fontSize: '1rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>{!todayAttendance ? '📍 Mark Check In' : '📍 Mark Check Out'}</h3>
+                    <h3 style={{ fontSize: '1rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+                      {(!todayAttendance || !todayAttendance.check_in_time) ? '📍 Mark Check In' : '📍 Mark Check Out'}
+                    </h3>
                     <div style={{ width: '100%', maxWidth: '320px', margin: '0 auto 1.25rem', borderRadius: '12px', overflow: 'hidden', border: '2px solid rgba(200,146,42,0.3)', backgroundColor: '#0a1628', aspectRatio: '4/3', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                       {isAttendanceCameraOpen && <video ref={attendanceVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />}
                       {attendancePhoto && !isAttendanceCameraOpen && <img src={attendancePhoto} alt="Attendance" style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />}
@@ -5658,7 +6617,9 @@ const loadReimbursements = async (empId) => {
                           <span style={{ fontSize: '0.82rem', color: 'var(--color-success)' }}>✓ Photo taken</span>
                           <div style={{ display: 'flex', gap: '0.75rem' }}>
                             <button onClick={() => { setAttendancePhoto(null); startAttendanceCamera(); }} className="btn btn-secondary" style={{ fontSize: '0.8rem' }}>Retake</button>
-                            <button onClick={() => handleMarkAttendance(todayAttendance ? 'out' : 'in')} className="btn btn-primary" disabled={attendanceLoading} style={{ fontSize: '0.9rem', padding: '0.7rem 1.5rem' }}>{attendanceLoading ? 'Verifying...' : todayAttendance ? '✓ Mark Check Out' : '✓ Mark Check In'}</button>
+                            <button onClick={() => handleMarkAttendance((todayAttendance && todayAttendance.check_in_time) ? 'out' : 'in')} className="btn btn-primary" disabled={attendanceLoading} style={{ fontSize: '0.9rem', padding: '0.7rem 1.5rem' }}>
+                              {attendanceLoading ? 'Verifying...' : (todayAttendance && todayAttendance.check_in_time) ? '✓ Mark Check Out' : '✓ Mark Check In'}
+                            </button>
                           </div>
                         </div>
                       )}
@@ -6214,6 +7175,59 @@ const loadReimbursements = async (empId) => {
                           <p style={{ margin: '4px 0 0', fontSize: '0.88rem', color: 'var(--color-text-primary)' }}>{myResignation.hr_note}</p>
                         </div>
                       )}
+
+                      {/* Official Relieving & Experience Letters (If Issued) */}
+                      {(myRelievingLetter?.data || myExperienceLetter?.data) && (
+                        <div className="glass-card" style={{ border: '1px solid rgba(16,185,129,0.3)', backgroundColor: 'rgba(16,185,129,0.03)' }}>
+                          <h4 style={{ margin: '0 0 1rem 0', fontSize: '1rem', fontWeight: 700, color: 'var(--color-success)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <CheckCircle2 size={18} /> Official Exit Documents
+                          </h4>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
+                            {myRelievingLetter?.data && (
+                              <div style={{ padding: '1rem', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <p style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem' }}>📋 Relieving Letter</p>
+                                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>Issued: {new Date(myRelievingLetter.created_at).toLocaleDateString('en-IN')}</p>
+                                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedExitLetterEmployee(activeEmployee);
+                                      setSelectedExitLetterData(myRelievingLetter.data);
+                                      setExitLetterType('relieving');
+                                      setIsExitLetterHrMode(false);
+                                      setIsExitLetterModalOpen(true);
+                                    }}
+                                    className="btn btn-primary"
+                                    style={{ fontSize: '0.75rem', padding: '0.35rem 0.8rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                  >
+                                    <Eye size={13} /> View / Print
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                            {myExperienceLetter?.data && (
+                              <div style={{ padding: '1rem', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <p style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem' }}>📜 Experience Letter</p>
+                                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>Issued: {new Date(myExperienceLetter.created_at).toLocaleDateString('en-IN')}</p>
+                                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedExitLetterEmployee(activeEmployee);
+                                      setSelectedExitLetterData(myExperienceLetter.data);
+                                      setExitLetterType('experience');
+                                      setIsExitLetterHrMode(false);
+                                      setIsExitLetterModalOpen(true);
+                                    }}
+                                    className="btn btn-primary"
+                                    style={{ fontSize: '0.75rem', padding: '0.35rem 0.8rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                  >
+                                    <Eye size={13} /> View / Print
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -6228,6 +7242,44 @@ const loadReimbursements = async (empId) => {
                     <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.88rem', margin: '0 0 1rem', lineHeight: 1.6 }}>
                       Your notice period has completed and your account has been deactivated. Thank you for your service and contributions at TOSBS!
                     </p>
+
+                    {(myRelievingLetter?.data || myExperienceLetter?.data) && (
+                      <div style={{ marginTop: '1.5rem', textAlign: 'left' }}>
+                        <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>Your Official Exit Documents</h4>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'center' }}>
+                          {myRelievingLetter?.data && (
+                            <button
+                              onClick={() => {
+                                setSelectedExitLetterEmployee(activeEmployee);
+                                setSelectedExitLetterData(myRelievingLetter.data);
+                                setExitLetterType('relieving');
+                                setIsExitLetterHrMode(false);
+                                setIsExitLetterModalOpen(true);
+                              }}
+                              className="btn btn-secondary"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                            >
+                              <FileText size={16} /> Relieving Letter
+                            </button>
+                          )}
+                          {myExperienceLetter?.data && (
+                            <button
+                              onClick={() => {
+                                setSelectedExitLetterEmployee(activeEmployee);
+                                setSelectedExitLetterData(myExperienceLetter.data);
+                                setExitLetterType('experience');
+                                setIsExitLetterHrMode(false);
+                                setIsExitLetterModalOpen(true);
+                              }}
+                              className="btn btn-secondary"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                            >
+                              <Award size={16} /> Experience Letter
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -6344,6 +7396,192 @@ const loadReimbursements = async (empId) => {
               </div>
             )}
 
+            {attendanceTab === 'relieving-letter' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>Official Relieving Letter</h2>
+                    <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', margin: '4px 0 0' }}>
+                      Official relieving confirmation and employment record issued by TOSBS Private Limited.
+                    </p>
+                  </div>
+                  {myRelievingLetter?.data && (
+                    <div style={{ display: 'flex', gap: '0.75rem' }}>
+                      <button
+                        onClick={() => {
+                          setSelectedExitLetterEmployee(activeEmployee);
+                          setSelectedExitLetterData(myRelievingLetter.data);
+                          setExitLetterType('relieving');
+                          setIsExitLetterHrMode(false);
+                          setIsExitLetterModalOpen(true);
+                        }}
+                        className="btn btn-secondary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                      >
+                        <Eye size={16} /> Fullscreen View
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedExitLetterEmployee(activeEmployee);
+                          setSelectedExitLetterData(myRelievingLetter.data);
+                          setExitLetterType('relieving');
+                          setIsExitLetterHrMode(false);
+                          setIsExitLetterModalOpen(true);
+                          setTimeout(() => { window.print(); }, 400);
+                        }}
+                        className="btn btn-primary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                      >
+                        <Printer size={16} /> Print / Save PDF
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {myRelievingLetter?.data ? (
+                  <div>
+                    {/* Summary Info Banner */}
+                    <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1.5rem', background: 'linear-gradient(135deg, rgba(200,146,42,0.08), rgba(200,146,42,0.02))', border: '1px solid rgba(200,146,42,0.2)' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', alignItems: 'center' }}>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Employee Code</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '1rem', fontWeight: 800, color: 'var(--color-orange)', fontFamily: 'monospace' }}>
+                            {myRelievingLetter.data.candidateCode || activeEmployee.short_code}
+                          </p>
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Designation</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '0.95rem', fontWeight: 600 }}>{myRelievingLetter.data.designation}</p>
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Last Working Day</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '0.95rem', fontWeight: 600, color: 'var(--color-success)' }}>{myRelievingLetter.data.lastWorkingDay}</p>
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Issued Date</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '0.95rem', fontWeight: 600 }}>{myRelievingLetter.data.letterDate || new Date(myRelievingLetter.created_at).toLocaleDateString('en-IN')}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ background: '#f3f4f6', padding: '2rem 1rem', borderRadius: '12px' }}>
+                      <RelievingLetterDocument data={myRelievingLetter.data} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="glass-card" style={{ textAlign: 'center', padding: '4rem 2rem', maxWidth: '650px', margin: '2rem auto' }}>
+                    <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'rgba(200,146,42,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+                      <FileText size={32} color="#c8922a" />
+                    </div>
+                    <h3 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '0.5rem' }}>Relieving Letter Pending</h3>
+                    <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', lineHeight: 1.6, margin: '0 0 1.5rem' }}>
+                      Your official relieving letter has not been issued yet. Once generated and authorized by the HR department upon completion of formalities, your letter will appear here for viewing and instant download.
+                    </p>
+                    <button
+                      onClick={() => setAttendanceTab('overview')}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.85rem', padding: '0.5rem 1.25rem' }}
+                    >
+                      ← Back to Overview
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {attendanceTab === 'experience-letter' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>Official Experience Letter</h2>
+                    <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', margin: '4px 0 0' }}>
+                      Official experience certificate and tenure verification issued by TOSBS Private Limited.
+                    </p>
+                  </div>
+                  {myExperienceLetter?.data && (
+                    <div style={{ display: 'flex', gap: '0.75rem' }}>
+                      <button
+                        onClick={() => {
+                          setSelectedExitLetterEmployee(activeEmployee);
+                          setSelectedExitLetterData(myExperienceLetter.data);
+                          setExitLetterType('experience');
+                          setIsExitLetterHrMode(false);
+                          setIsExitLetterModalOpen(true);
+                        }}
+                        className="btn btn-secondary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                      >
+                        <Eye size={16} /> Fullscreen View
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedExitLetterEmployee(activeEmployee);
+                          setSelectedExitLetterData(myExperienceLetter.data);
+                          setExitLetterType('experience');
+                          setIsExitLetterHrMode(false);
+                          setIsExitLetterModalOpen(true);
+                          setTimeout(() => { window.print(); }, 400);
+                        }}
+                        className="btn btn-primary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                      >
+                        <Printer size={16} /> Print / Save PDF
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {myExperienceLetter?.data ? (
+                  <div>
+                    {/* Summary Info Banner */}
+                    <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1.5rem', background: 'linear-gradient(135deg, rgba(200,146,42,0.08), rgba(200,146,42,0.02))', border: '1px solid rgba(200,146,42,0.2)' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', alignItems: 'center' }}>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Employee Code</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '1rem', fontWeight: 800, color: 'var(--color-orange)', fontFamily: 'monospace' }}>
+                            {myExperienceLetter.data.candidateCode || activeEmployee.short_code}
+                          </p>
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Designation</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '0.95rem', fontWeight: 600 }}>{myExperienceLetter.data.designation}</p>
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Tenure</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '0.95rem', fontWeight: 600, color: 'var(--color-success)' }}>{myExperienceLetter.data.joiningDate} to {myExperienceLetter.data.lastWorkingDay}</p>
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Issued Date</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '0.95rem', fontWeight: 600 }}>{myExperienceLetter.data.letterDate || new Date(myExperienceLetter.created_at).toLocaleDateString('en-IN')}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ background: '#f3f4f6', padding: '2rem 1rem', borderRadius: '12px' }}>
+                      <ExperienceLetterDocument data={myExperienceLetter.data} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="glass-card" style={{ textAlign: 'center', padding: '4rem 2rem', maxWidth: '650px', margin: '2rem auto' }}>
+                    <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'rgba(200,146,42,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+                      <Award size={32} color="#c8922a" />
+                    </div>
+                    <h3 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '0.5rem' }}>Experience Letter Pending</h3>
+                    <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', lineHeight: 1.6, margin: '0 0 1.5rem' }}>
+                      Your official experience certificate has not been issued yet. Once generated and authorized by the HR department upon completion of formalities, your certificate will appear here for viewing and instant download.
+                    </p>
+                    <button
+                      onClick={() => setAttendanceTab('overview')}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.85rem', padding: '0.5rem 1.25rem' }}
+                    >
+                      ← Back to Overview
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
         </div>
       )}
@@ -6357,6 +7595,22 @@ const loadReimbursements = async (empId) => {
           offerData={selectedOfferLetterData}
           isHrMode={isOfferLetterHrMode}
           onSaveOfferLetter={handleSaveOfferLetter}
+        />
+      )}
+
+      {/* EXIT LETTER MODAL (RELIEVING & EXPERIENCE) */}
+      {isExitLetterModalOpen && (
+        <ExitLetterModal
+          isOpen={isExitLetterModalOpen}
+          onClose={() => setIsExitLetterModalOpen(false)}
+          employee={selectedExitLetterEmployee}
+          letterType={exitLetterType}
+          initialData={selectedExitLetterData}
+          isHrMode={isExitLetterHrMode}
+          onSaveSuccess={(payload, docType) => {
+            loadAllExitLetters();
+            if (activeEmployee?.id) loadEmployeeExitLetters(activeEmployee.id);
+          }}
         />
       )}
 
