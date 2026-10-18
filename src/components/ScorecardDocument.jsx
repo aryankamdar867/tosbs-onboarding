@@ -11,7 +11,7 @@ export const ScorecardDocument = ({ data, id = 'tosbs-performance-scorecard-doc'
   const assignedDate = data.assignedDate || data.assigned_at ? new Date(data.assignedDate || data.assigned_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
   const completedDate = data.completedDate || data.submitted_at || data.completed_at ? new Date(data.completedDate || data.submitted_at || data.completed_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   const evaluationDate = data.evaluationDate || data.evaluated_at ? new Date(data.evaluationDate || data.evaluated_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-  const evaluatorName = data.evaluatorName || data.evaluated_by || 'Ruchi (Admin / Performance Lead)';
+  const evaluatorName = data.evaluatorName || data.evaluated_by || 'Performance Lead';
   const evaluatorTitle = data.evaluatorTitle || 'Performance & Operations Lead';
 
   // Ratings

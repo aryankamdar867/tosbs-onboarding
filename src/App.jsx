@@ -12,6 +12,7 @@ import PayslipModal from './components/PayslipModal';
 import TaskModal from './components/TaskModal';
 import ScorecardModal from './components/ScorecardModal';
 import ScorecardDocument from './components/ScorecardDocument';
+import PerformanceDashboard from './components/PerformanceDashboard';
 import { saveAs } from "file-saver";
 import {
   Users, UserCheck, ShieldAlert, Award,
@@ -210,6 +211,12 @@ function App() {
   const [employeeTasks, setEmployeeTasks] = useState([]);
   const [employeePerformanceLoading, setEmployeePerformanceLoading] = useState(false);
 
+  // Performance Lead Portal State (Amar, Ruchi, Riya, HR)
+  const [leadUser, setLeadUser] = useState(null);
+  const [perfEmail, setPerfEmail] = useState('');
+  const [perfPassword, setPerfPassword] = useState('');
+  const [perfLoginError, setPerfLoginError] = useState('');
+
   // Attendance state
   const [attendanceTab, setAttendanceTab] = useState('overview');
   const [showWfhOption, setShowWfhOption] = useState(false);
@@ -319,6 +326,10 @@ function App() {
 
     // Manual HR access via URL param (?hr=1), in addition to the small link on splash
     if (params.get('hr') === '1') { setCurrentView('hr-login'); return; }
+    if (params.get('perf') === '1' || params.get('pms') === '1' || params.get('performance') === '1') {
+      setCurrentView('performance-login');
+      return;
+    }
 
     // Handle invite token
     const token = params.get('token');
@@ -432,33 +443,134 @@ function App() {
       setRegError('Failed to validate code. Please try again.');
     }
   };
-const handleHrLogin = (e) => {
-  e.preventDefault();
-  setHrLoginError('');
-  const emailClean = (hrEmail || '').trim().toLowerCase();
-  const passClean = (hrPassword || '').trim();
+  const handlePerformanceLogin = (e) => {
+    e.preventDefault();
+    setPerfLoginError('');
+    const userClean = (perfEmail || '').trim().toLowerCase();
+    const passClean = (perfPassword || '').trim();
 
-  const isGeneralHr = (emailClean === 'hrtosbs' || emailClean === 'admin@tosbs.com') && passClean === 'tosbs@011';
-  const isRuchiAdmin = ['ruchi', 'adminruchi', 'ruchitosbs', 'ruchi@tosbs.com'].includes(emailClean) && 
-                       ['tosbs@011', 'ruchi@011', 'ruchi@tosbs', 'adminruchi', 'admin@ruchi'].includes(passClean);
+    let matched = null;
 
-  if (isRuchiAdmin) {
-    setHrUser({ email: 'ruchi@tosbs.com', name: 'Ruchi (Admin)', role: 'admin_ruchi' });
+    if (['amar', 'amartosbs', 'amar@tosbs.com'].includes(userClean) && ['tosbs@011', 'amar@011', 'amar', 'tosbs'].includes(passClean)) {
+      matched = {
+        id: 'amar',
+        username: 'amar',
+        name: 'Amar',
+        role: 'lead_amar',
+        title: 'Performance Lead (Amar)',
+        department: 'Operations & Tech',
+        avatar: 'AM'
+      };
+    } else if (['ruchi', 'ruchitosbs', 'ruchi@tosbs.com'].includes(userClean) && ['tosbs@011', 'ruchi@011', 'ruchi', 'tosbs'].includes(passClean)) {
+      matched = {
+        id: 'ruchi',
+        username: 'ruchi',
+        name: 'Ruchi',
+        role: 'lead_ruchi',
+        title: 'Performance Lead (Ruchi)',
+        department: 'Operations & Business',
+        avatar: 'RU'
+      };
+    } else if (['riya', 'riyatosbs', 'riya@tosbs.com'].includes(userClean) && ['tosbs@011', 'riya@011', 'riya', 'tosbs'].includes(passClean)) {
+      matched = {
+        id: 'riya',
+        username: 'riya',
+        name: 'Riya',
+        role: 'lead_riya',
+        title: 'Performance Lead (Riya)',
+        department: 'Operations & Delivery',
+        avatar: 'RI'
+      };
+    } else if (['hr', 'hrtosbs', 'admin', 'hr@tosbs.com'].includes(userClean) && ['tosbs@011', 'hr@011', 'tosbs'].includes(passClean)) {
+      matched = {
+        id: 'hr',
+        username: 'hr',
+        name: 'HR Admin',
+        role: 'lead_hr',
+        title: 'HR / Performance Lead',
+        department: 'Human Resources',
+        avatar: 'HR'
+      };
+    }
+
+    if (matched) {
+      setLeadUser(matched);
+      setPerfLoginError('');
+      setCurrentView('performance-dashboard');
+      loadPerformanceData();
+      loadEmployees();
+    } else {
+      setPerfLoginError('Invalid username or password for Performance Management portal.');
+    }
+  };
+
+  const handleHrLogin = (e) => {
+    e.preventDefault();
     setHrLoginError('');
-    setCurrentView('hr-dashboard');
-    setHrActiveTab('performance');
-    loadHrCelebrations();
-    loadPerformanceData();
-  } else if (isGeneralHr) {
-    setHrUser({ email: 'hrtosbs@tosbs.com', name: 'HR Admin', role: 'admin' });
-    setHrLoginError('');
-    setCurrentView('hr-dashboard');
-    loadHrCelebrations();
-    loadPerformanceData();
-  } else {
-    setHrLoginError('Invalid username or password.');
-  }
-};
+    const emailClean = (hrEmail || '').trim().toLowerCase();
+    const passClean = (hrPassword || '').trim();
+
+    // If a team lead logs in through the HR login form, redirect them to the Performance Dashboard (HR view is hidden)
+    if (['amar', 'amartosbs', 'amar@tosbs.com'].includes(emailClean) && ['tosbs@011', 'amar@011', 'amar', 'tosbs'].includes(passClean)) {
+      setLeadUser({
+        id: 'amar',
+        username: 'amar',
+        name: 'Amar',
+        role: 'lead_amar',
+        title: 'Performance Lead (Amar)',
+        department: 'Operations & Tech',
+        avatar: 'AM'
+      });
+      setCurrentView('performance-dashboard');
+      loadPerformanceData();
+      loadEmployees();
+      return;
+    }
+
+    if (['ruchi', 'ruchitosbs', 'ruchi@tosbs.com'].includes(emailClean) && ['tosbs@011', 'ruchi@011', 'ruchi', 'tosbs'].includes(passClean)) {
+      setLeadUser({
+        id: 'ruchi',
+        username: 'ruchi',
+        name: 'Ruchi',
+        role: 'lead_ruchi',
+        title: 'Performance Lead (Ruchi)',
+        department: 'Operations & Business',
+        avatar: 'RU'
+      });
+      setCurrentView('performance-dashboard');
+      loadPerformanceData();
+      loadEmployees();
+      return;
+    }
+
+    if (['riya', 'riyatosbs', 'riya@tosbs.com'].includes(emailClean) && ['tosbs@011', 'riya@011', 'riya', 'tosbs'].includes(passClean)) {
+      setLeadUser({
+        id: 'riya',
+        username: 'riya',
+        name: 'Riya',
+        role: 'lead_riya',
+        title: 'Performance Lead (Riya)',
+        department: 'Operations & Delivery',
+        avatar: 'RI'
+      });
+      setCurrentView('performance-dashboard');
+      loadPerformanceData();
+      loadEmployees();
+      return;
+    }
+
+    const isGeneralHr = (emailClean === 'hrtosbs' || emailClean === 'admin@tosbs.com') && passClean === 'tosbs@011';
+
+    if (isGeneralHr) {
+      setHrUser({ email: 'hrtosbs@tosbs.com', name: 'HR Admin', role: 'admin' });
+      setHrLoginError('');
+      setCurrentView('hr-dashboard');
+      loadHrCelebrations();
+      loadPerformanceData();
+    } else {
+      setHrLoginError('Invalid username or password.');
+    }
+  };
 
   const handleShortCodeLogin = async () => {
     const code = shortCode.trim().toUpperCase();
@@ -3269,23 +3381,62 @@ const loadReimbursements = async (empId) => {
           </div>
         );
       })()}
-      {/* VIEW 1: SPLASH — employee-first, HR access is a small manual link only */}
+      {/* VIEW 1: SPLASH — Dual Portals: Employee Portal & Performance Management Portal */}
       {currentView === 'splash' && (
         <div style={splashContainerStyle}>
-          <img src="/Capture.JPG" alt="TOSBS Logo" style={{ height: '150px', marginBottom: '1rem' }} />
+          <div style={{ backgroundColor: '#ffffff', padding: '10px 24px', borderRadius: '14px', display: 'inline-flex', alignItems: 'center', marginBottom: '1.25rem', boxShadow: '0 8px 30px rgba(0,0,0,0.35)' }}>
+            <img src="/Capture.JPG" alt="TOSBS Logo" style={{ height: '70px', objectFit: 'contain' }} />
+          </div>
           <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-            <h1 style={splashLogoStyle}>ONBOARDING PORTAL</h1>
-            <p style={{ color: 'var(--color-text-secondary)', fontSize: '1.1rem', marginTop: '0.5rem', fontFamily: 'var(--font-display)' }}></p>
+            <h1 style={splashLogoStyle}>TOSBS PORTALS</h1>
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: '1rem', marginTop: '0.4rem', fontFamily: 'var(--font-display)', letterSpacing: '0.03em' }}>
+              The Other Side Business Services — Internal Workspaces
+            </p>
           </div>
-          <div className="glass-card" style={{ ...splashCardStyle, maxWidth: '480px', width: '100%', cursor: 'pointer' }} onClick={() => setCurrentView('employee-login')}>
-            <div style={splashIconWrapperStyle}><Users size={32} color="#3b82f6" /></div>
-            <h2 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>Employee Onboarding</h2>
-            <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '1.5rem' }}>Join your team, log back in, or continue your onboarding and credential verification.</p>
-            <div style={splashLinkStyle}><span>Continue as Employee</span><ArrowRight size={16} /></div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', width: '100%' }}>
+            {/* CARD 1: EMPLOYEE PORTAL */}
+            <div
+              className="glass-card"
+              style={{ ...splashCardStyle, cursor: 'pointer', border: '1px solid rgba(59,130,246,0.3)', transition: 'all 0.2s ease' }}
+              onClick={() => setCurrentView('employee-login')}
+            >
+              <div style={{ ...splashIconWrapperStyle, background: 'rgba(59,130,246,0.12)', borderColor: 'rgba(59,130,246,0.25)' }}>
+                <Users size={32} color="#3b82f6" />
+              </div>
+              <h2 style={{ fontSize: '1.4rem', marginBottom: '0.5rem', fontWeight: 700 }}>Employee Portal</h2>
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.88rem', lineHeight: 1.55, marginBottom: '1.75rem', flexGrow: 1 }}>
+                Complete onboarding, manage credentials, mark attendance, view salary slips, and submit assigned task deliverables & review official scorecards.
+              </p>
+              <div style={{ ...splashLinkStyle, color: '#3b82f6' }}>
+                <span>Continue as Employee</span>
+                <ArrowRight size={16} />
+              </div>
+            </div>
+
+            {/* CARD 2: PERFORMANCE MANAGEMENT PORTAL */}
+            <div
+              className="glass-card"
+              style={{ ...splashCardStyle, cursor: 'pointer', border: '1px solid rgba(200,146,42,0.35)', transition: 'all 0.2s ease' }}
+              onClick={() => setCurrentView('performance-login')}
+            >
+              <div style={{ ...splashIconWrapperStyle, background: 'rgba(200,146,42,0.12)', borderColor: 'rgba(200,146,42,0.3)' }}>
+                <Award size={32} color="#c8922a" />
+              </div>
+              <h2 style={{ fontSize: '1.4rem', marginBottom: '0.5rem', fontWeight: 700 }}>Performance Portal</h2>
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.88rem', lineHeight: 1.55, marginBottom: '1.75rem', flexGrow: 1 }}>
+                Dedicated team lead workspace for <strong>Amar, Ruchi, Riya & HR</strong>. Assign deliverables, review submissions, and evaluate official scorecards.
+              </p>
+              <div style={splashLinkStyle}>
+                <span>Lead Sign In</span>
+                <ArrowRight size={16} />
+              </div>
+            </div>
           </div>
+
           <button
             onClick={() => setCurrentView('hr-login')}
-            style={{ marginTop: '2.5rem', background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline' }}
+            style={{ marginTop: '2.5rem', background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.78rem', cursor: 'pointer', textDecoration: 'underline' }}
           >
             HR Administration Login
           </button>
@@ -3366,6 +3517,132 @@ const loadReimbursements = async (empId) => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* VIEW 2b: PERFORMANCE MANAGEMENT LOGIN (LEADS: AMAR, RUCHI, RIYA, HR) */}
+      {currentView === 'performance-login' && (
+        <div style={loginWrapperStyle}>
+          <div className="glass-card" style={{ width: '100%', maxWidth: '440px', padding: '2.5rem' }}>
+            <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '56px', height: '56px', borderRadius: '14px', background: 'rgba(200,146,42,0.15)', border: '1px solid rgba(200,146,42,0.3)', marginBottom: '1rem', color: '#e0a832' }}>
+                <Award size={28} />
+              </div>
+              <h2 style={{ fontSize: '1.6rem', marginBottom: '0.35rem', fontWeight: 800 }}>Performance Portal</h2>
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem' }}>
+                Sign in to assign deliverables, review employee submissions, and generate official scorecards.
+              </p>
+            </div>
+
+            {/* Quick lead badges */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem', marginBottom: '1.5rem', padding: '0.6rem', backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
+              {[
+                { name: 'Amar', role: 'Tech & Ops', user: 'amar' },
+                { name: 'Ruchi', role: 'Ops & Business', user: 'ruchi' },
+                { name: 'Riya', role: 'Ops & Delivery', user: 'riya' },
+                { name: 'HR', role: 'Admin', user: 'hr' }
+              ].map(lead => (
+                <button
+                  key={lead.name}
+                  type="button"
+                  onClick={() => setPerfEmail(lead.user)}
+                  style={{
+                    background: perfEmail === lead.user ? 'rgba(200,146,42,0.2)' : 'transparent',
+                    border: perfEmail === lead.user ? '1px solid rgba(200,146,42,0.5)' : '1px solid transparent',
+                    borderRadius: '8px',
+                    padding: '6px 4px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: perfEmail === lead.user ? '#e0a832' : 'var(--color-text-primary)' }}>{lead.name}</div>
+                  <div style={{ fontSize: '0.62rem', color: 'var(--color-text-muted)' }}>{lead.role}</div>
+                </button>
+              ))}
+            </div>
+
+            <form onSubmit={handlePerformanceLogin}>
+              <div className="form-group">
+                <label className="form-label">Lead Username</label>
+                <input
+                  type="text"
+                  value={perfEmail}
+                  onChange={(e) => { setPerfEmail(e.target.value); setPerfLoginError(''); }}
+                  className="form-input"
+                  placeholder="amar / ruchi / riya / hr"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                <label className="form-label">Password</label>
+                <input
+                  type="password"
+                  value={perfPassword}
+                  onChange={(e) => { setPerfPassword(e.target.value); setPerfLoginError(''); }}
+                  className="form-input"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+
+              {perfLoginError && (
+                <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-danger-bg)', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--color-danger)', borderRadius: '8px', fontSize: '0.8rem', marginBottom: '1.25rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <ShieldAlert size={16} /><span>{perfLoginError}</span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => { setPerfLoginError(''); setCurrentView('splash'); }}
+                  className="btn btn-secondary"
+                  style={{ flex: 1 }}
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ flex: 2, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                >
+                  Sign In <ArrowRight size={16} />
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW 2c: PERFORMANCE MANAGEMENT DASHBOARD */}
+      {currentView === 'performance-dashboard' && leadUser && (
+        <PerformanceDashboard
+          leadUser={leadUser}
+          onSignOut={() => {
+            setLeadUser(null);
+            setCurrentView('splash');
+          }}
+          performanceTasks={performanceTasks}
+          performanceLoading={performanceLoading}
+          employees={employees}
+          onOpenTaskModal={(task, mode) => {
+            setSelectedPerformanceTask(task);
+            setTaskModalMode(mode);
+            setIsTaskModalOpen(true);
+          }}
+          onOpenScorecardModal={(task, mode) => {
+            setSelectedPerformanceTask(task);
+            setScorecardModalMode(mode);
+            setIsScorecardModalOpen(true);
+          }}
+          onUpdateTaskStatus={handleUpdateTaskStatus}
+          onDeleteTask={handleDeleteTask}
+          onRefreshTasks={() => {
+            loadPerformanceData();
+            loadEmployees();
+          }}
+        />
       )}
 
       {/* VIEW 3: HR DASHBOARD */}
@@ -8700,7 +8977,7 @@ const loadReimbursements = async (empId) => {
           mode={taskModalMode}
           task={selectedPerformanceTask}
           employees={employees}
-          currentUser={hrUser || activeEmployee}
+          currentUser={leadUser || hrUser || activeEmployee}
           onTaskSaved={(savedTask) => {
             loadPerformanceData();
             if (activeEmployee) {
@@ -8717,7 +8994,7 @@ const loadReimbursements = async (empId) => {
           onClose={() => setIsScorecardModalOpen(false)}
           task={selectedPerformanceTask}
           initialMode={scorecardModalMode}
-          currentUser={hrUser}
+          currentUser={leadUser || hrUser}
           onScorecardSaved={(updatedTask) => {
             loadPerformanceData();
             if (activeEmployee) {
@@ -8733,7 +9010,7 @@ const loadReimbursements = async (empId) => {
 
 
 
-const splashContainerStyle = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '85vh', width: '100%', maxWidth: '700px', margin: '0 auto', padding: '1rem' };
+const splashContainerStyle = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '85vh', width: '100%', maxWidth: '860px', margin: '0 auto', padding: '1.5rem' };
 const splashLogoStyle = { fontSize: '2.5rem', fontWeight: 900, background: 'linear-gradient(135deg, #c8922a, #e0a832)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '0.08em' };
 const splashCardStyle = { padding: '2.5rem', cursor: 'pointer', transition: 'all 0.2s ease', display: 'flex', flexDirection: 'column' };
 const splashIconWrapperStyle = { width: '56px', height: '56px', borderRadius: '14px', backgroundColor: 'rgba(0,0,0,0.03)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem' };

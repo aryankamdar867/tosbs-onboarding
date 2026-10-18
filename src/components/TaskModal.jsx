@@ -29,7 +29,7 @@ export const TaskModal = ({
   });
   const [description, setDescription] = useState(task?.description || '');
   const [estimatedHours, setEstimatedHours] = useState(task?.estimated_hours || '8');
-  const [assignedBy, setAssignedBy] = useState(task?.assigned_by || currentUser?.name || 'Ruchi (Admin)');
+  const [assignedBy, setAssignedBy] = useState(task?.assigned_by || currentUser?.name || 'Performance Lead');
 
   // Form State for Employee Submission
   const [submissionNotes, setSubmissionNotes] = useState(task?.submission_notes || '');
@@ -72,7 +72,7 @@ export const TaskModal = ({
         due_date: dueDate,
         description: description.trim(),
         estimated_hours: estimatedHours,
-        assigned_by: assignedBy.trim() || 'Ruchi (Admin)',
+        assigned_by: assignedBy.trim() || currentUser?.name || 'Performance Lead',
         assigned_at: task?.assigned_at || now,
         status: task?.status || 'assigned',
         submission_notes: task?.submission_notes || '',
@@ -228,7 +228,7 @@ export const TaskModal = ({
                 {isSubmitMode ? 'Submit Completed Task' : isEditMode ? 'Edit Assigned Task' : 'Assign New Task'}
               </h2>
               <p style={{ margin: '2px 0 0 0', fontSize: '0.78rem', color: 'var(--color-text-secondary)' }}>
-                {isSubmitMode ? 'Send task for Ruchi to evaluate & issue your scorecard' : 'Ruchi Performance Management System'}
+                {isSubmitMode ? 'Send deliverable to your manager to evaluate & issue your scorecard' : 'TOSBS Performance Management System'}
               </p>
             </div>
           </div>
@@ -458,7 +458,7 @@ export const TaskModal = ({
                   className="form-input"
                   value={assignedBy}
                   onChange={(e) => setAssignedBy(e.target.value)}
-                  placeholder="Ruchi (Admin)"
+                  placeholder="e.g. Amar, Ruchi, Riya, or HR Admin"
                 />
               </div>
 

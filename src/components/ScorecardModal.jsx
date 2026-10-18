@@ -39,7 +39,7 @@ export const ScorecardModal = ({
     existingScorecard?.remarks || 'Task successfully executed to expectations with high professional integrity. Keep up the commendable performance!'
   );
   const [evaluatorName, setEvaluatorName] = useState(
-    existingScorecard?.evaluated_by || currentUser?.name || 'Ruchi (Admin)'
+    existingScorecard?.evaluatorName || existingScorecard?.evaluated_by || currentUser?.name || 'Performance Lead'
   );
 
   // Calculations
@@ -94,7 +94,7 @@ export const ScorecardModal = ({
         assignedDate: task.assigned_at,
         completedDate: task.completed_at || task.submitted_at || evaluationDate,
         evaluationDate: evaluationDate,
-        evaluatorName: evaluatorName.trim() || 'Ruchi (Admin)',
+        evaluatorName: evaluatorName.trim() || currentUser?.name || 'Performance Lead',
         evaluatorTitle: 'Performance & Operations Lead',
         ratings: ratings,
         totalScore: totalScore,
