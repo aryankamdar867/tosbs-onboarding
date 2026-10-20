@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Printer, Download, Edit3, Eye, CheckCircle2, Save, FileText } from 'lucide-react';
+import { X, Printer, Download, Edit3, Eye, CheckCircle2, Save, FileText, Mail, Loader2 } from 'lucide-react';
 import OfferLetterDocument from './OfferLetterDocument';
 import supabase from '../lib/supabaseClient';
+import { sendOfferLetterEmail } from '../utils/letterEmailService';
 
 export const OfferLetterModal = ({
   isOpen,
@@ -19,6 +20,10 @@ export const OfferLetterModal = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [saveError, setSaveError] = useState('');
+
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailSuccessMsg, setEmailSuccessMsg] = useState('');
+  const [emailErrorMsg, setEmailErrorMsg] = useState('');
 
   // Default initial fields
   const defaultLetterDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }).replace(/ /g, '.');
@@ -141,6 +146,36 @@ export const OfferLetterModal = ({
     }
   };
 
+  const handleEmailOfferLetter = async () => {
+    const targetEmail = employee?.email || formData?.email;
+    if (!targetEmail) {
+      setEmailErrorMsg('Employee has no email address on file.');
+      return;
+    }
+
+    if (!window.confirm(`Send official Appointment cum Offer Letter directly to ${formData.fullName || employee.full_name} (${targetEmail})?`)) {
+      return;
+    }
+
+    setIsSendingEmail(true);
+    setEmailErrorMsg('');
+    setEmailSuccessMsg('');
+
+    try {
+      const res = await sendOfferLetterEmail(employee, formData);
+      if (res.success) {
+        setEmailSuccessMsg(`✓ Offer letter successfully delivered to ${targetEmail}!`);
+        setTimeout(() => setEmailSuccessMsg(''), 7000);
+      } else {
+        setEmailErrorMsg(res.error || 'Failed to send email via Resend.');
+      }
+    } catch (err) {
+      setEmailErrorMsg(err.message || 'Unexpected error while sending email.');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -245,6 +280,27 @@ export const OfferLetterModal = ({
 
           <button
             type="button"
+            onClick={handleEmailOfferLetter}
+            disabled={isSendingEmail}
+            className="btn btn-secondary"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              fontSize: '0.82rem',
+              padding: '0.5rem 0.95rem',
+              borderColor: 'rgba(59,130,246,0.4)',
+              color: '#3b82f6',
+              backgroundColor: 'rgba(59,130,246,0.1)'
+            }}
+            title={`Directly email this offer letter to ${employee?.email || 'employee'}`}
+          >
+            {isSendingEmail ? <Loader2 size={15} className="spin" /> : <Mail size={15} />}
+            <span>{isSendingEmail ? 'Sending...' : 'Email to Employee'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handlePrint}
             className="btn btn-primary"
             style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.5rem 1rem' }}
@@ -312,6 +368,38 @@ export const OfferLetterModal = ({
             marginBottom: '1rem'
           }}>
             {saveError}
+          </div>
+        )}
+
+        {emailSuccessMsg && (
+          <div className="no-print" style={{
+            padding: '0.75rem 1rem',
+            backgroundColor: 'rgba(16,185,129,0.15)',
+            border: '1px solid rgba(16,185,129,0.4)',
+            borderRadius: '8px',
+            color: '#065f46',
+            fontSize: '0.88rem',
+            fontWeight: 600,
+            marginBottom: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}>
+            <CheckCircle2 size={18} color="#10b981" /> {emailSuccessMsg}
+          </div>
+        )}
+
+        {emailErrorMsg && (
+          <div className="no-print" style={{
+            padding: '0.75rem 1rem',
+            backgroundColor: 'rgba(239,68,68,0.15)',
+            border: '1px solid rgba(239,68,68,0.4)',
+            borderRadius: '8px',
+            color: '#991b1b',
+            fontSize: '0.88rem',
+            marginBottom: '1rem'
+          }}>
+            ⚠️ {emailErrorMsg}
           </div>
         )}
 

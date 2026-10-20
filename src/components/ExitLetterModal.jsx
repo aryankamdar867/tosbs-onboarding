@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Printer, Download, Edit3, Eye, CheckCircle2, Save, FileText, Award, Calendar, User, Briefcase } from 'lucide-react';
+import { X, Printer, Download, Edit3, Eye, CheckCircle2, Save, FileText, Award, Calendar, User, Briefcase, Mail, Loader2 } from 'lucide-react';
 import RelievingLetterDocument from './RelievingLetterDocument';
 import ExperienceLetterDocument from './ExperienceLetterDocument';
 import supabase from '../lib/supabaseClient';
+import { sendRelievingLetterEmail, sendExperienceLetterEmail } from '../utils/letterEmailService';
 
 export const ExitLetterModal = ({
   isOpen,
@@ -20,6 +21,10 @@ export const ExitLetterModal = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [saveError, setSaveError] = useState('');
+
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailSuccessMsg, setEmailSuccessMsg] = useState('');
+  const [emailErrorMsg, setEmailErrorMsg] = useState('');
 
   // Default date formatting helper (DD.Month.YYYY)
   const defaultLetterDate = (() => {
@@ -184,6 +189,40 @@ export const ExitLetterModal = ({
     }
   };
 
+  const handleEmailExitLetter = async () => {
+    const targetEmail = employee?.email || formData?.email;
+    if (!targetEmail) {
+      setEmailErrorMsg('Employee has no email address on file.');
+      return;
+    }
+
+    const docTitle = activeType === 'relieving' ? 'Relieving Letter' : 'Experience Letter';
+    if (!window.confirm(`Send official ${docTitle} directly to ${formData.fullName || employee.full_name} (${targetEmail})?`)) {
+      return;
+    }
+
+    setIsSendingEmail(true);
+    setEmailErrorMsg('');
+    setEmailSuccessMsg('');
+
+    try {
+      const res = activeType === 'relieving'
+        ? await sendRelievingLetterEmail(employee, formData)
+        : await sendExperienceLetterEmail(employee, formData);
+
+      if (res.success) {
+        setEmailSuccessMsg(`✓ ${docTitle} successfully delivered to ${targetEmail}!`);
+        setTimeout(() => setEmailSuccessMsg(''), 7000);
+      } else {
+        setEmailErrorMsg(res.error || 'Failed to send email via Resend.');
+      }
+    } catch (err) {
+      setEmailErrorMsg(err.message || 'Unexpected error while sending email.');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
   return (
     <div style={{
       position: 'fixed',
@@ -329,6 +368,27 @@ export const ExitLetterModal = ({
 
           <button
             type="button"
+            onClick={handleEmailExitLetter}
+            disabled={isSendingEmail}
+            className="btn btn-secondary"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              fontSize: '0.82rem',
+              padding: '0.5rem 0.95rem',
+              borderColor: 'rgba(59,130,246,0.4)',
+              color: '#3b82f6',
+              backgroundColor: 'rgba(59,130,246,0.1)'
+            }}
+            title={`Directly email this ${activeType === 'relieving' ? 'Relieving' : 'Experience'} letter to ${employee?.email || 'employee'}`}
+          >
+            {isSendingEmail ? <Loader2 size={15} className="spin" /> : <Mail size={15} />}
+            <span>{isSendingEmail ? 'Sending...' : 'Email to Employee'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handlePrint}
             className="btn btn-primary"
             style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.5rem 0.9rem' }}
@@ -391,6 +451,38 @@ export const ExitLetterModal = ({
             fontSize: '0.85rem'
           }}>
             {saveError}
+          </div>
+        )}
+
+        {emailSuccessMsg && (
+          <div className="no-print" style={{
+            backgroundColor: 'rgba(16, 185, 129, 0.15)',
+            border: '1px solid rgba(16, 185, 129, 0.4)',
+            color: '#10b981',
+            padding: '0.75rem 1.25rem',
+            borderRadius: '8px',
+            marginBottom: '1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            fontSize: '0.85rem'
+          }}>
+            <CheckCircle2 size={16} />
+            {emailSuccessMsg}
+          </div>
+        )}
+
+        {emailErrorMsg && (
+          <div className="no-print" style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.15)',
+            border: '1px solid rgba(239, 68, 68, 0.4)',
+            color: '#ef4444',
+            padding: '0.75rem 1.25rem',
+            borderRadius: '8px',
+            marginBottom: '1.25rem',
+            fontSize: '0.85rem'
+          }}>
+            ⚠️ {emailErrorMsg}
           </div>
         )}
 

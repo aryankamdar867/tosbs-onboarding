@@ -13,6 +13,12 @@ import TaskModal from './components/TaskModal';
 import ScorecardModal from './components/ScorecardModal';
 import ScorecardDocument from './components/ScorecardDocument';
 import PerformanceDashboard from './components/PerformanceDashboard';
+import {
+  sendOfferLetterEmail,
+  sendRelievingLetterEmail,
+  sendExperienceLetterEmail,
+  sendResignationAcceptanceEmail
+} from './utils/letterEmailService';
 import { saveAs } from "file-saver";
 import {
   Users, UserCheck, ShieldAlert, Award,
@@ -20,7 +26,8 @@ import {
   LogOut, LayoutDashboard, FileText, CheckCircle2,
   Lock, ArrowRight, MapPin, Building, CreditCard, Bell, CalendarDays, Gift,
   UserMinus, AlertCircle, Calendar, FileCheck, Printer, Download,
-  StickyNote, Pin, Tag, Edit3, TrendingUp, Target, CheckSquare, Star, Send
+  StickyNote, Pin, Tag, Edit3, TrendingUp, Target, CheckSquare, Star, Send,
+  Mail, Loader2
 } from 'lucide-react';
 // Festival calendar — auto-checked against today's date, no manual entry needed.
 // Fixed-date festivals repeat every year. Movable ones (Holi, Eid, Diwali, etc.)
@@ -174,6 +181,7 @@ function App() {
   const [relievingLetterFilter, setRelievingLetterFilter] = useState('all'); // 'all' | 'issued' | 'pending' | 'resigned'
   const [experienceLetterSearch, setExperienceLetterSearch] = useState('');
   const [experienceLetterFilter, setExperienceLetterFilter] = useState('all'); // 'all' | 'issued' | 'pending' | 'resigned'
+  const [emailSendingMap, setEmailSendingMap] = useState({});
 
   // Payslip Modal State
   const [isPayslipModalOpen, setIsPayslipModalOpen] = useState(false);
@@ -2337,9 +2345,26 @@ const loadReimbursements = async (empId) => {
         });
       } catch (ne) { console.error('Notify emp failed:', ne); }
 
+      // Send official Resignation Acceptance Email directly via Resend
+      let emailSentSuccess = false;
+      try {
+        const emp = employees.find(e => e.id === employeeId);
+        if (emp?.email) {
+          const emailRes = await sendResignationAcceptanceEmail(emp, {
+            notice_period_days: days,
+            notice_start_date: start,
+            notice_end_date: endDate,
+            hr_note: hrNote
+          });
+          if (emailRes.success) emailSentSuccess = true;
+        }
+      } catch (emErr) {
+        console.error('Failed to dispatch resignation acceptance email:', emErr);
+      }
+
       alert(days === 0
-        ? `Resignation approved! Immediate exit assigned (Last Working Day: ${endDate}). Account will auto-deactivate 5 days after.`
-        : `Resignation approved! Notice period set to ${days} days (Ends on ${endDate}). Account will auto-deactivate 5 days after notice ends.`
+        ? `Resignation approved! Immediate exit assigned (Last Working Day: ${endDate}). Account will auto-deactivate 5 days after.${emailSentSuccess ? '\n✉️ Formal acceptance email delivered to employee.' : ''}`
+        : `Resignation approved! Notice period set to ${days} days (Ends on ${endDate}). Account will auto-deactivate 5 days after notice ends.${emailSentSuccess ? '\n✉️ Formal acceptance email delivered to employee.' : ''}`
       );
       loadHrResignations();
       loadEmployees();
@@ -2980,6 +3005,110 @@ const loadReimbursements = async (empId) => {
     }
 
     setIsExitLetterModalOpen(true);
+  };
+
+  const handleSendOfferLetterEmailDirect = async (emp, letterData) => {
+    const key = `offer_${emp.id}`;
+    const targetEmail = emp.email || letterData?.email;
+    if (!targetEmail) {
+      alert('This employee does not have an email address on file.');
+      return;
+    }
+    if (!window.confirm(`Send official Appointment cum Offer Letter directly to ${emp.full_name} (${targetEmail}) via Resend?`)) return;
+
+    setEmailSendingMap(prev => ({ ...prev, [key]: true }));
+    try {
+      const res = await sendOfferLetterEmail(emp, letterData);
+      if (res.success) {
+        alert(`✓ Official Offer Letter successfully delivered to ${targetEmail}!`);
+      } else {
+        alert(`Failed to send email: ${res.error}`);
+      }
+    } catch (e) {
+      alert(`Error sending email: ${e.message}`);
+    } finally {
+      setEmailSendingMap(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const handleSendRelievingLetterEmailDirect = async (emp, letterData) => {
+    const key = `relieving_${emp.id}`;
+    const targetEmail = emp.email || letterData?.email;
+    if (!targetEmail) {
+      alert('This employee does not have an email address on file.');
+      return;
+    }
+    if (!window.confirm(`Send official Relieving Letter directly to ${emp.full_name} (${targetEmail}) via Resend?`)) return;
+
+    setEmailSendingMap(prev => ({ ...prev, [key]: true }));
+    try {
+      const res = await sendRelievingLetterEmail(emp, letterData);
+      if (res.success) {
+        alert(`✓ Official Relieving Letter successfully delivered to ${targetEmail}!`);
+      } else {
+        alert(`Failed to send email: ${res.error}`);
+      }
+    } catch (e) {
+      alert(`Error sending email: ${e.message}`);
+    } finally {
+      setEmailSendingMap(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const handleSendExperienceLetterEmailDirect = async (emp, letterData) => {
+    const key = `exp_${emp.id}`;
+    const targetEmail = emp.email || letterData?.email;
+    if (!targetEmail) {
+      alert('This employee does not have an email address on file.');
+      return;
+    }
+    if (!window.confirm(`Send official Service Experience Certificate directly to ${emp.full_name} (${targetEmail}) via Resend?`)) return;
+
+    setEmailSendingMap(prev => ({ ...prev, [key]: true }));
+    try {
+      const res = await sendExperienceLetterEmail(emp, letterData);
+      if (res.success) {
+        alert(`✓ Official Experience Letter successfully delivered to ${targetEmail}!`);
+      } else {
+        alert(`Failed to send email: ${res.error}`);
+      }
+    } catch (e) {
+      alert(`Error sending email: ${e.message}`);
+    } finally {
+      setEmailSendingMap(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const handleSendResignationAcceptanceEmailDirect = async (resignationRec, employeeObj) => {
+    const key = `resign_${resignationRec.id}`;
+    const emp = employeeObj || employees.find(e => e.id === resignationRec.employee_id) || {
+      id: resignationRec.employee_id,
+      full_name: resignationRec.profiles?.full_name,
+      email: resignationRec.profiles?.email,
+      position: resignationRec.profiles?.position
+    };
+
+    const targetEmail = emp?.email || resignationRec?.profiles?.email;
+    if (!targetEmail) {
+      alert('This employee does not have an email address on file.');
+      return;
+    }
+
+    if (!window.confirm(`Send official Resignation Acceptance & Notice Period Details to ${emp.full_name || 'employee'} (${targetEmail}) via Resend?`)) return;
+
+    setEmailSendingMap(prev => ({ ...prev, [key]: true }));
+    try {
+      const res = await sendResignationAcceptanceEmail(emp, resignationRec);
+      if (res.success) {
+        alert(`✓ Formal Resignation Acceptance Letter successfully delivered to ${targetEmail}!`);
+      } else {
+        alert(`Failed to send email: ${res.error}`);
+      }
+    } catch (e) {
+      alert(`Error sending email: ${e.message}`);
+    } finally {
+      setEmailSendingMap(prev => ({ ...prev, [key]: false }));
+    }
   };
 
   const handleDigiLockerSuccess = (verifiedData) => setDigiLockerDetails(verifiedData);
@@ -4761,6 +4890,31 @@ const loadReimbursements = async (empId) => {
                                     <Award size={13} /> + Experience Letter
                                   </button>
                                 )}
+
+                                {/* Email Resignation Acceptance Letter Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const empObj = employees.find(e => e.id === r.employee_id) || { id: r.employee_id, full_name: r.profiles?.full_name, email: r.profiles?.email, position: r.profiles?.position };
+                                    handleSendResignationAcceptanceEmailDirect(r, empObj);
+                                  }}
+                                  disabled={emailSendingMap[`resign_${r.id}`]}
+                                  className="btn btn-secondary"
+                                  style={{
+                                    fontSize: '0.75rem',
+                                    padding: '0.35rem 0.75rem',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    color: '#3b82f6',
+                                    borderColor: 'rgba(59,130,246,0.35)',
+                                    backgroundColor: 'rgba(59,130,246,0.08)'
+                                  }}
+                                  title={`Email official resignation acceptance & notice period details to ${r.profiles?.email || 'employee'}`}
+                                >
+                                  {emailSendingMap[`resign_${r.id}`] ? <Loader2 size={13} className="spin" /> : <Mail size={13} />}
+                                  <span>{emailSendingMap[`resign_${r.id}`] ? 'Sending...' : 'Email Acceptance Letter'}</span>
+                                </button>
                               </div>
 
                               {(isServingNotice || isNoticeOver) && (
@@ -5023,6 +5177,25 @@ const loadReimbursements = async (empId) => {
                                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
                                       {hasLetter ? (
                                         <>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSendOfferLetterEmailDirect(emp, letter.data)}
+                                            disabled={emailSendingMap[`offer_${emp.id}`]}
+                                            className="btn btn-secondary"
+                                            style={{
+                                              fontSize: '0.75rem',
+                                              padding: '0.35rem 0.7rem',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '4px',
+                                              color: '#3b82f6',
+                                              borderColor: 'rgba(59,130,246,0.35)'
+                                            }}
+                                            title={`Directly email official offer letter to ${emp.email}`}
+                                          >
+                                            {emailSendingMap[`offer_${emp.id}`] ? <Loader2 size={13} className="spin" /> : <Mail size={13} />}
+                                            <span>{emailSendingMap[`offer_${emp.id}`] ? 'Sending...' : 'Email'}</span>
+                                          </button>
                                           <button
                                             onClick={() => {
                                               setSelectedOfferLetterEmployee(emp);
@@ -5310,6 +5483,25 @@ const loadReimbursements = async (empId) => {
                                       {hasLetter ? (
                                         <>
                                           <button
+                                            type="button"
+                                            onClick={() => handleSendRelievingLetterEmailDirect(emp, letter.data)}
+                                            disabled={emailSendingMap[`relieving_${emp.id}`]}
+                                            className="btn btn-secondary"
+                                            style={{
+                                              fontSize: '0.75rem',
+                                              padding: '0.35rem 0.7rem',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '4px',
+                                              color: '#3b82f6',
+                                              borderColor: 'rgba(59,130,246,0.35)'
+                                            }}
+                                            title={`Directly email official relieving letter to ${emp.email}`}
+                                          >
+                                            {emailSendingMap[`relieving_${emp.id}`] ? <Loader2 size={13} className="spin" /> : <Mail size={13} />}
+                                            <span>{emailSendingMap[`relieving_${emp.id}`] ? 'Sending...' : 'Email'}</span>
+                                          </button>
+                                          <button
                                             onClick={() => {
                                               setSelectedExitLetterEmployee(emp);
                                               setSelectedExitLetterData(letter.data);
@@ -5596,6 +5788,25 @@ const loadReimbursements = async (empId) => {
                                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
                                       {hasLetter ? (
                                         <>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSendExperienceLetterEmailDirect(emp, letter.data)}
+                                            disabled={emailSendingMap[`exp_${emp.id}`]}
+                                            className="btn btn-secondary"
+                                            style={{
+                                              fontSize: '0.75rem',
+                                              padding: '0.35rem 0.7rem',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '4px',
+                                              color: '#3b82f6',
+                                              borderColor: 'rgba(59,130,246,0.35)'
+                                            }}
+                                            title={`Directly email official experience letter to ${emp.email}`}
+                                          >
+                                            {emailSendingMap[`exp_${emp.id}`] ? <Loader2 size={13} className="spin" /> : <Mail size={13} />}
+                                            <span>{emailSendingMap[`exp_${emp.id}`] ? 'Sending...' : 'Email'}</span>
+                                          </button>
                                           <button
                                             onClick={() => {
                                               setSelectedExitLetterEmployee(emp);
