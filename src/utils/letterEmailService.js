@@ -4,40 +4,38 @@
  * Relieving Letters, Experience Letters, and Resignation Acceptance Letters directly to employees.
  */
 
-const RESEND_API_URL = 'https://api.resend.com/emails';
+const PROXY_API_URL = '/api/send-email';
 
 /**
- * Low-level Resend email dispatcher
+ * Resend email dispatcher via serverless proxy (bypasses browser CORS restrictions)
  */
 export const sendResendEmail = async ({ to, subject, html, from = null, replyTo = null }) => {
   const apiKey = import.meta.env.VITE_RESEND_API_KEY;
-  if (!apiKey) {
-    return { success: false, error: 'Resend API key is missing. Please set VITE_RESEND_API_KEY in .env.' };
-  }
 
-  if (!to || !to.includes('@')) {
+  if (!to || (typeof to === 'string' && !to.includes('@')) || (Array.isArray(to) && to.length === 0)) {
     return { success: false, error: 'Invalid or missing recipient email address.' };
   }
 
   const senderEmail = from || import.meta.env.VITE_RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+  const recipients = Array.isArray(to) ? to : [to.trim()];
 
   try {
     const payload = {
       from: senderEmail,
-      to: [to.trim()],
+      to: recipients,
       subject: subject,
       html: html,
+      apiKey: apiKey,
     };
 
     if (replyTo || import.meta.env.VITE_HR_EMAIL) {
-      payload.reply_to = replyTo || import.meta.env.VITE_HR_EMAIL;
+      payload.replyTo = replyTo || import.meta.env.VITE_HR_EMAIL;
     }
 
-    const response = await fetch(RESEND_API_URL, {
+    const response = await fetch(PROXY_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey.trim()}`,
       },
       body: JSON.stringify(payload),
     });
@@ -45,14 +43,14 @@ export const sendResendEmail = async ({ to, subject, html, from = null, replyTo 
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      const errorMsg = data?.message || data?.error?.message || `Resend HTTP error ${response.status}`;
+      const errorMsg = data?.error || data?.message || data?.details?.message || `Server returned HTTP ${response.status}`;
       return { success: false, error: errorMsg, data };
     }
 
-    return { success: true, data };
+    return { success: true, data: data.data || data };
   } catch (err) {
     console.error('sendResendEmail error:', err);
-    return { success: false, error: err.message || 'Network error while sending email.' };
+    return { success: false, error: err.message || 'Network error while dispatching email.' };
   }
 };
 

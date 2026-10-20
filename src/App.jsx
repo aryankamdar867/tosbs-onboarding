@@ -14,6 +14,7 @@ import ScorecardModal from './components/ScorecardModal';
 import ScorecardDocument from './components/ScorecardDocument';
 import PerformanceDashboard from './components/PerformanceDashboard';
 import {
+  sendResendEmail,
   sendOfferLetterEmail,
   sendRelievingLetterEmail,
   sendExperienceLetterEmail,
@@ -1239,28 +1240,23 @@ function App() {
 
         if (forceWfh) {
           try {
-            await fetch('https://api.resend.com/emails', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_RESEND_API_KEY}` },
-              body: JSON.stringify({
-                from: 'onboarding@resend.dev',
-                to: import.meta.env.VITE_HR_EMAIL,
-                subject: `WFH Alert — ${activeEmployee.full_name} is working from home today`,
-                html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                  <div style="background: #1a2d4a; padding: 24px; border-radius: 8px 8px 0 0;">
-                    <h1 style="color: #c8922a; margin: 0; font-size: 22px;">TOSBS Attendance Alert</h1>
-                  </div>
-                  <div style="background: #f8fafc; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e2e8f0;">
-                    <h2 style="color: #1a2d4a; margin-top: 0;">Work From Home — Check In</h2>
-                    <table style="width: 100%; border-collapse: collapse;">
-                      <tr><td style="padding: 8px 0; color: #64748b; width: 140px;">Employee</td><td style="padding: 8px 0; font-weight: 600; color: #0f172a;">${activeEmployee.full_name}</td></tr>
-                      <tr><td style="padding: 8px 0; color: #64748b;">Email</td><td style="padding: 8px 0; color: #0f172a;">${activeEmployee.email}</td></tr>
-                      <tr><td style="padding: 8px 0; color: #64748b;">Distance from Office</td><td style="padding: 8px 0; color: #0f172a;">${pendingData.dist}m away</td></tr>
-                      <tr><td style="padding: 8px 0; color: #64748b;">Reason</td><td style="padding: 8px 0; color: #0f172a;">${pendingData.reason || 'No reason provided'}</td></tr>
-                    </table>
-                  </div>
-                </div>`
-              })
+            await sendResendEmail({
+              to: import.meta.env.VITE_HR_EMAIL || 'hrtosbs@gmail.com',
+              subject: `WFH Alert — ${activeEmployee.full_name} is working from home today`,
+              html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <div style="background: #1a2d4a; padding: 24px; border-radius: 8px 8px 0 0;">
+                  <h1 style="color: #c8922a; margin: 0; font-size: 22px;">TOSBS Attendance Alert</h1>
+                </div>
+                <div style="background: #f8fafc; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e2e8f0;">
+                  <h2 style="color: #1a2d4a; margin-top: 0;">Work From Home — Check In</h2>
+                  <table style="width: 100%; border-collapse: collapse;">
+                    <tr><td style="padding: 8px 0; color: #64748b; width: 140px;">Employee</td><td style="padding: 8px 0; font-weight: 600; color: #0f172a;">${activeEmployee.full_name}</td></tr>
+                    <tr><td style="padding: 8px 0; color: #64748b;">Email</td><td style="padding: 8px 0; color: #0f172a;">${activeEmployee.email}</td></tr>
+                    <tr><td style="padding: 8px 0; color: #64748b;">Distance from Office</td><td style="padding: 8px 0; color: #0f172a;">${pendingData.dist}m away</td></tr>
+                    <tr><td style="padding: 8px 0; color: #64748b;">Reason</td><td style="padding: 8px 0; color: #0f172a;">${pendingData.reason || 'No reason provided'}</td></tr>
+                  </table>
+                </div>
+              </div>`
             });
           } catch (emailErr) { console.error('WFH email failed:', emailErr); }
         }
@@ -1899,11 +1895,9 @@ function App() {
 
         try {
           const { data: empData } = await supabase.from('profiles').select('email, full_name').eq('id', leave.employee_id).single();
-          await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_RESEND_API_KEY}` },
-            body: JSON.stringify({
-              from: 'onboarding@resend.dev', to: empData.email,
+          if (empData?.email) {
+            await sendResendEmail({
+              to: empData.email,
               subject: `Leave Approved ✓ — TOSBS`,
               html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <div style="background: #1a2d4a; padding: 24px; border-radius: 8px 8px 0 0;"><h1 style="color: #c8922a; margin: 0; font-size: 22px;">TOSBS Leave Update</h1></div>
@@ -1912,8 +1906,8 @@ function App() {
                   ${hrNote ? `<p style="color: #475569;"><strong>HR Note:</strong> ${hrNote}</p>` : ''}
                 </div>
               </div>`
-            })
-          });
+            });
+          }
         } catch (e) { console.error('Verdict email failed:', e); }
       }
 
@@ -2109,31 +2103,26 @@ const loadReimbursements = async (empId) => {
 
       // Email HR
       try {
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_RESEND_API_KEY}` },
-          body: JSON.stringify({
-            from: 'onboarding@resend.dev',
-            to: import.meta.env.VITE_HR_EMAIL,
-            subject: `Reimbursement Request — ${activeEmployee.full_name} — ₹${total.toFixed(2)}`,
-            html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
-              <div style="background:#1a2d4a;padding:24px;border-radius:8px 8px 0 0">
-                <h1 style="color:#c8922a;margin:0;font-size:22px">TOSBS Reimbursement Request</h1>
+        await sendResendEmail({
+          to: import.meta.env.VITE_HR_EMAIL || 'hrtosbs@gmail.com',
+          subject: `Reimbursement Request — ${activeEmployee.full_name} — ₹${total.toFixed(2)}`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+            <div style="background:#1a2d4a;padding:24px;border-radius:8px 8px 0 0">
+              <h1 style="color:#c8922a;margin:0;font-size:22px">TOSBS Reimbursement Request</h1>
+            </div>
+            <div style="background:#f8fafc;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0">
+              <table style="width:100%;border-collapse:collapse">
+                <tr><td style="padding:8px 0;color:#64748b;width:160px">Employee</td><td style="padding:8px 0;font-weight:600;color:#0f172a">${activeEmployee.full_name}</td></tr>
+                <tr><td style="padding:8px 0;color:#64748b">Date</td><td style="padding:8px 0;color:#0f172a">${reimbForm.date}</td></tr>
+                <tr><td style="padding:8px 0;color:#64748b">Client / Place</td><td style="padding:8px 0;color:#0f172a">${reimbForm.client_name}</td></tr>
+                <tr><td style="padding:8px 0;color:#64748b">Work Done</td><td style="padding:8px 0;color:#0f172a">${reimbForm.work_description}</td></tr>
+                <tr><td style="padding:8px 0;color:#64748b">Total Amount</td><td style="padding:8px 0;font-weight:700;color:#c8922a;font-size:18px">₹${total.toFixed(2)}</td></tr>
+              </table>
+              <div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:6px;border-left:4px solid #c8922a">
+                <p style="margin:0;color:#92400e;font-size:14px">Please log in to approve or reject this reimbursement request.</p>
               </div>
-              <div style="background:#f8fafc;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0">
-                <table style="width:100%;border-collapse:collapse">
-                  <tr><td style="padding:8px 0;color:#64748b;width:160px">Employee</td><td style="padding:8px 0;font-weight:600;color:#0f172a">${activeEmployee.full_name}</td></tr>
-                  <tr><td style="padding:8px 0;color:#64748b">Date</td><td style="padding:8px 0;color:#0f172a">${reimbForm.date}</td></tr>
-                  <tr><td style="padding:8px 0;color:#64748b">Client / Place</td><td style="padding:8px 0;color:#0f172a">${reimbForm.client_name}</td></tr>
-                  <tr><td style="padding:8px 0;color:#64748b">Work Done</td><td style="padding:8px 0;color:#0f172a">${reimbForm.work_description}</td></tr>
-                  <tr><td style="padding:8px 0;color:#64748b">Total Amount</td><td style="padding:8px 0;font-weight:700;color:#c8922a;font-size:18px">₹${total.toFixed(2)}</td></tr>
-                </table>
-                <div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:6px;border-left:4px solid #c8922a">
-                  <p style="margin:0;color:#92400e;font-size:14px">Please log in to approve or reject this reimbursement request.</p>
-                </div>
-              </div>
-            </div>`
-          })
+            </div>
+          </div>`
         });
       } catch (e) { console.error('Reimb email failed:', e); }
 
