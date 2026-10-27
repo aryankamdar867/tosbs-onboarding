@@ -39,7 +39,7 @@ export const ScorecardModal = ({
     existingScorecard?.remarks || 'Task successfully executed to expectations with high professional integrity. Keep up the commendable performance!'
   );
   const [evaluatorName, setEvaluatorName] = useState(
-    existingScorecard?.evaluatorName || existingScorecard?.evaluated_by || currentUser?.name || 'Performance Lead'
+    existingScorecard?.evaluatorName || existingScorecard?.evaluated_by || currentUser?.name || 'Task Lead'
   );
 
   // Calculations
@@ -94,8 +94,8 @@ export const ScorecardModal = ({
         assignedDate: task.assigned_at,
         completedDate: task.completed_at || task.submitted_at || evaluationDate,
         evaluationDate: evaluationDate,
-        evaluatorName: evaluatorName.trim() || currentUser?.name || 'Performance Lead',
-        evaluatorTitle: 'Performance & Operations Lead',
+        evaluatorName: evaluatorName.trim() || currentUser?.name || 'Task Lead',
+        evaluatorTitle: 'Task & Operations Lead',
         ratings: ratings,
         totalScore: totalScore,
         percentage: percentage,
@@ -578,7 +578,7 @@ export const ScorecardModal = ({
                     className="form-input"
                     value={evaluatorName}
                     onChange={(e) => setEvaluatorName(e.target.value)}
-                    placeholder="e.g. Ruchi (Admin / Performance Lead)"
+                    placeholder="e.g. Ruchi (Admin / Task Lead)"
                   />
                 </div>
               </div>

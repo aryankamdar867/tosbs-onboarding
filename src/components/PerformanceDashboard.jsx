@@ -106,7 +106,7 @@ export const PerformanceDashboard = ({
           </div>
           <div style={{ marginTop: '0.75rem' }}>
             <span style={{ fontSize: '0.68rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-orange)', letterSpacing: '0.8px' }}>
-              Performance Management
+              Task Management
             </span>
             <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fff', marginTop: '2px' }}>
               Team Lead Portal
@@ -145,7 +145,7 @@ export const PerformanceDashboard = ({
               {leadUser?.name}
             </p>
             <p style={{ margin: '1px 0 0', fontSize: '0.72rem', color: 'var(--color-orange)', fontWeight: 600 }}>
-              {leadUser?.title || 'Performance Lead'}
+              {leadUser?.title || 'Task Lead'}
             </p>
           </div>
         </div>
@@ -269,7 +269,7 @@ export const PerformanceDashboard = ({
           {/* Quick Action Button */}
           <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
             <button
-              onClick={() => onOpenTaskModal({ assigned_by: leadUser?.name || 'Performance Lead' }, 'create')}
+              onClick={() => onOpenTaskModal({ assigned_by: leadUser?.name || 'Task Lead' }, 'create')}
               className="btn btn-primary"
               style={{ width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px' }}
             >
@@ -309,17 +309,17 @@ export const PerformanceDashboard = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
               <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-orange)', letterSpacing: '0.8px' }}>
-                Performance & Appraisal Portal
+                Task Management Portal
               </span>
               <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700, backgroundColor: 'rgba(255,255,255,0.08)', color: '#fff' }}>
                 Lead: {leadUser?.name}
               </span>
             </div>
             <h1 style={{ fontSize: '1.9rem', fontWeight: 800, margin: '0 0 4px', color: '#fff' }}>
-              {activeTab === 'my_tasks' ? `Tasks Assigned by ${leadUser?.name}` : activeTab === 'awaiting_review' ? 'Deliverables Awaiting Scorecard Evaluation' : activeTab === 'scorecards' ? 'Official Performance Scorecards Archive' : 'All Company Performance Deliverables'}
+              {activeTab === 'my_tasks' ? `Tasks Assigned by ${leadUser?.name}` : activeTab === 'awaiting_review' ? 'Deliverables Awaiting Scorecard Evaluation' : activeTab === 'scorecards' ? 'Official Task Scorecards Archive' : 'All Company Tasks & Deliverables'}
             </h1>
             <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--color-text-secondary)' }}>
-              Assign tasks, monitor employee progress, evaluate completion, and generate official performance scorecards.
+              Assign tasks, monitor employee progress, evaluate completion, and generate official scorecards.
             </p>
           </div>
 
@@ -332,7 +332,7 @@ export const PerformanceDashboard = ({
               <RefreshCw size={15} /> Refresh
             </button>
             <button
-              onClick={() => onOpenTaskModal({ assigned_by: leadUser?.name || 'Performance Lead' }, 'create')}
+              onClick={() => onOpenTaskModal({ assigned_by: leadUser?.name || 'Task Lead' }, 'create')}
               className="btn btn-primary"
               style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', padding: '0.55rem 1.25rem' }}
             >
@@ -551,7 +551,7 @@ export const PerformanceDashboard = ({
 
                         {/* Score breakdown bar */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>Performance Rating</span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>Score Rating</span>
                           <span style={{ fontWeight: 800, fontSize: '0.85rem', color: gradeColor }}>
                             {sc.totalScore || 0} / 50 ({pct}%)
                           </span>
@@ -561,7 +561,7 @@ export const PerformanceDashboard = ({
                         </div>
 
                         <div style={{ marginTop: '10px', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                          Evaluator: <strong style={{ color: '#fff' }}>{sc.evaluatorName || 'Performance Lead'}</strong> •{' '}
+                          Evaluator: <strong style={{ color: '#fff' }}>{sc.evaluatorName || 'Task Lead'}</strong> •{' '}
                           {new Date(sc.evaluationDate || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </div>
                       </div>
@@ -611,7 +611,7 @@ export const PerformanceDashboard = ({
                     : `No tasks have been assigned by ${leadUser?.name} yet. Click below to assign a new deliverable.`}
                 </p>
                 <button
-                  onClick={() => onOpenTaskModal({ assigned_by: leadUser?.name || 'Performance Lead' }, 'create')}
+                  onClick={() => onOpenTaskModal({ assigned_by: leadUser?.name || 'Task Lead' }, 'create')}
                   className="btn btn-primary"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 >

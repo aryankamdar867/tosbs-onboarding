@@ -81,7 +81,9 @@ function App() {
   const [announcementSubmitting, setAnnouncementSubmitting] = useState(false);
   const [announcementSuccessMsg, setAnnouncementSuccessMsg] = useState('');
   const [showAnnouncementPopup, setShowAnnouncementPopup] = useState(false);
-  const [currentPopupAnnouncement, setCurrentPopupAnnouncement] = useState(null); 
+  const [currentPopupAnnouncement, setCurrentPopupAnnouncement] = useState(null);
+  const [announcementFilter, setAnnouncementFilter] = useState('all'); // 'all' | 'active' | 'scheduled' | 'expired'
+  const [announcementSearch, setAnnouncementSearch] = useState(''); 
   const [hrUser, setHrUser] = useState(null);
   const [activeEmployee, setActiveEmployee] = useState(null);
   const [employees, setEmployees] = useState([]);
@@ -359,7 +361,7 @@ function App() {
     } catch (err) { console.error('Error loading employees:', err); }
   };
 
-  useEffect(() => { if (hrUser) { loadEmployees(); loadAllOfferLetters(); loadAllExitLetters(); loadHrNotes(); loadPerformanceData(); } }, [hrUser]);
+  useEffect(() => { if (hrUser) { loadEmployees(); loadAllOfferLetters(); loadAllExitLetters(); loadHrNotes(); loadPerformanceData(); loadHrCelebrations(); } }, [hrUser]);
 
   useEffect(() => {
     if (activeEmployee?.id) {
@@ -466,7 +468,7 @@ function App() {
         username: 'amar',
         name: 'Amar',
         role: 'lead_amar',
-        title: 'Performance Lead (Amar)',
+        title: 'Task Lead (Amar)',
         department: 'Operations & Tech',
         avatar: 'AM'
       };
@@ -476,7 +478,7 @@ function App() {
         username: 'ruchi',
         name: 'Ruchi',
         role: 'lead_ruchi',
-        title: 'Performance Lead (Ruchi)',
+        title: 'Task Lead (Ruchi)',
         department: 'Operations & Business',
         avatar: 'RU'
       };
@@ -486,7 +488,7 @@ function App() {
         username: 'riya',
         name: 'Riya',
         role: 'lead_riya',
-        title: 'Performance Lead (Riya)',
+        title: 'Task Lead (Riya)',
         department: 'Operations & Delivery',
         avatar: 'RI'
       };
@@ -496,7 +498,7 @@ function App() {
         username: 'hr',
         name: 'HR Admin',
         role: 'lead_hr',
-        title: 'HR / Performance Lead',
+        title: 'HR / Task Lead',
         department: 'Human Resources',
         avatar: 'HR'
       };
@@ -509,7 +511,7 @@ function App() {
       loadPerformanceData();
       loadEmployees();
     } else {
-      setPerfLoginError('Invalid username or password for Performance Management portal.');
+      setPerfLoginError('Invalid username or password for Task Management portal.');
     }
   };
 
@@ -526,7 +528,7 @@ function App() {
         username: 'amar',
         name: 'Amar',
         role: 'lead_amar',
-        title: 'Performance Lead (Amar)',
+        title: 'Task Lead (Amar)',
         department: 'Operations & Tech',
         avatar: 'AM'
       });
@@ -542,7 +544,7 @@ function App() {
         username: 'ruchi',
         name: 'Ruchi',
         role: 'lead_ruchi',
-        title: 'Performance Lead (Ruchi)',
+        title: 'Task Lead (Ruchi)',
         department: 'Operations & Business',
         avatar: 'RU'
       });
@@ -558,7 +560,7 @@ function App() {
         username: 'riya',
         name: 'Riya',
         role: 'lead_riya',
-        title: 'Performance Lead (Riya)',
+        title: 'Task Lead (Riya)',
         department: 'Operations & Delivery',
         avatar: 'RI'
       });
@@ -3532,18 +3534,18 @@ const loadReimbursements = async (empId) => {
               </div>
             </div>
 
-            {/* CARD 2: PERFORMANCE MANAGEMENT PORTAL */}
+            {/* CARD 2: TASK MANAGEMENT PORTAL */}
             <div
               className="glass-card"
               style={{ ...splashCardStyle, cursor: 'pointer', border: '1px solid rgba(200,146,42,0.35)', transition: 'all 0.2s ease' }}
               onClick={() => setCurrentView('performance-login')}
             >
               <div style={{ ...splashIconWrapperStyle, background: 'rgba(200,146,42,0.12)', borderColor: 'rgba(200,146,42,0.3)' }}>
-                <Award size={32} color="#c8922a" />
+                <CheckSquare size={32} color="#c8922a" />
               </div>
-              <h2 style={{ fontSize: '1.4rem', marginBottom: '0.5rem', fontWeight: 700 }}>Performance Portal</h2>
+              <h2 style={{ fontSize: '1.4rem', marginBottom: '0.5rem', fontWeight: 700 }}>Task Portal</h2>
               <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.88rem', lineHeight: 1.55, marginBottom: '1.75rem', flexGrow: 1 }}>
-                Dedicated team lead workspace for <strong>Amar, Ruchi, Riya & HR</strong>. Assign deliverables, review submissions, and evaluate official scorecards.
+                Dedicated team lead workspace for <strong>Amar, Ruchi, Riya & HR</strong>. Assign deliverables, review submissions, and manage tasks.
               </p>
               <div style={splashLinkStyle}>
                 <span>Lead Sign In</span>
@@ -3637,17 +3639,17 @@ const loadReimbursements = async (empId) => {
         </div>
       )}
 
-      {/* VIEW 2b: PERFORMANCE MANAGEMENT LOGIN (LEADS: AMAR, RUCHI, RIYA, HR) */}
+      {/* VIEW 2b: TASK MANAGEMENT LOGIN (LEADS: AMAR, RUCHI, RIYA, HR) */}
       {currentView === 'performance-login' && (
         <div style={loginWrapperStyle}>
           <div className="glass-card" style={{ width: '100%', maxWidth: '440px', padding: '2.5rem' }}>
             <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '56px', height: '56px', borderRadius: '14px', background: 'rgba(200,146,42,0.15)', border: '1px solid rgba(200,146,42,0.3)', marginBottom: '1rem', color: '#e0a832' }}>
-                <Award size={28} />
+                <CheckSquare size={28} />
               </div>
-              <h2 style={{ fontSize: '1.6rem', marginBottom: '0.35rem', fontWeight: 800 }}>Performance Portal</h2>
+              <h2 style={{ fontSize: '1.6rem', marginBottom: '0.35rem', fontWeight: 800 }}>Task Portal</h2>
               <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem' }}>
-                Sign in to assign deliverables, review employee submissions, and generate official scorecards.
+                Sign in to assign deliverables, review employee submissions, and manage tasks.
               </p>
             </div>
 
@@ -3815,99 +3817,21 @@ const loadReimbursements = async (empId) => {
                 className={hrActiveTab === 'performance' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} 
                 style={hrActiveTab === 'performance' ? sidebarLinkActiveStyle : sidebarLinkStyle}
               >
-                <TrendingUp size={18} /><span>Performance</span>
+                <CheckSquare size={18} /><span>Tasks</span>
                 {performanceTasks.filter(t => t.status === 'submitted').length > 0 && (
                   <span style={badgeCountStyle}>{performanceTasks.filter(t => t.status === 'submitted').length}</span>
                 )}
               </button>
-              <button onClick={() => { setShowAnnouncement(!showAnnouncement); setAnnouncementSuccessMsg(''); }} className="sidebar-btn" style={sidebarLinkStyle}>
-                <Bell size={18} /><span>Announce</span>
+              <button 
+                onClick={() => { setHrActiveTab('announcements'); loadHrCelebrations(); }} 
+                className={hrActiveTab === 'announcements' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} 
+                style={hrActiveTab === 'announcements' ? sidebarLinkActiveStyle : sidebarLinkStyle}
+              >
+                <Bell size={18} /><span>Announcements</span>
+                {notifications.filter(n => n.is_announcement).length > 0 && (
+                  <span style={badgeCountStyle}>{notifications.filter(n => n.is_announcement).length}</span>
+                )}
               </button>
-              {showAnnouncement && (
-                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '2rem', overflowY: 'auto' }}>
-                  <div className="glass-card" style={{ width: '100%', maxWidth: '700px', border: '1px solid rgba(200,146,42,0.3)', animation: 'slideUp 0.3s ease', margin: 'auto' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>
-                      <h2 style={{ fontSize: '1.2rem', margin: 0 }}>📢 Manage Announcements</h2>
-                      <button onClick={() => setShowAnnouncement(false)} className="btn btn-secondary" style={{ padding: '4px 10px' }}>✕</button>
-                    </div>
-
-                    {announcementSuccessMsg && (
-                      <div style={{ padding: '0.75rem 1rem', backgroundColor: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '8px', color: 'var(--color-success)', fontSize: '0.88rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span>✓</span> <strong>{announcementSuccessMsg}</strong>
-                      </div>
-                    )}
-
-                    {/* Create */}
-                    <div style={{ padding: '1.25rem', backgroundColor: 'rgba(200,146,42,0.05)', borderRadius: '12px', border: '1px solid rgba(200,146,42,0.15)', marginBottom: '1.5rem' }}>
-                      <h3 style={{ fontSize: '0.85rem', color: 'var(--color-orange)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem' }}>New Announcement</h3>
-                      <div className="form-group">
-                        <label className="form-label">Title *</label>
-                        <input type="text" placeholder="e.g. Office closed on Diwali" value={announcementForm.title} onChange={(e) => setAnnouncementForm({...announcementForm, title: e.target.value})} className="form-input" />
-                      </div>
-                      <div className="form-row">
-                        <div className="form-group">
-                          <label className="form-label">Start Date (blank = today)</label>
-                          <input type="date" value={announcementForm.start_date || announcementForm.scheduled_date} onChange={(e) => setAnnouncementForm({...announcementForm, start_date: e.target.value, scheduled_date: e.target.value})} className="form-input" />
-                        </div>
-                        <div className="form-group">
-                          <label className="form-label">End Date (optional / until when active)</label>
-                          <input type="date" value={announcementForm.end_date} onChange={(e) => setAnnouncementForm({...announcementForm, end_date: e.target.value})} className="form-input" min={announcementForm.start_date || announcementForm.scheduled_date || new Date().toISOString().split('T')[0]} />
-                        </div>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Message</label>
-                        <textarea placeholder="Write your announcement message..." value={announcementForm.message} onChange={(e) => setAnnouncementForm({...announcementForm, message: e.target.value})} className="form-input" style={{ minHeight: '90px', resize: 'vertical' }} />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Attach Image (optional)</label>
-                        <input type="file" accept="image/*" onChange={handleAnnouncementImageUpload} className="form-input" />
-                        {announcementImageFile && <p style={{ fontSize: '0.75rem', color: 'var(--color-success)', marginTop: '0.25rem' }}>✓ {announcementImageFile}</p>}
-                        {announcementForm.image_url && <img src={announcementForm.image_url} alt="Preview" style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', borderRadius: '8px', marginTop: '0.5rem' }} />}
-                      </div>
-                      <button type="button" onClick={sendAnnouncement} className="btn btn-primary" disabled={announcementSubmitting} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        {announcementSubmitting ? '⏳ Publishing...' : (announcementForm.start_date || announcementForm.scheduled_date) && (announcementForm.start_date || announcementForm.scheduled_date) > new Date().toISOString().split('T')[0] ? '📅 Schedule Announcement' : '📢 Publish Announcement'}
-                      </button>
-                    </div>
-
-                    {/* List */}
-                    <h3 style={{ fontSize: '0.85rem', color: 'var(--color-orange)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem' }}>All Announcements</h3>
-                    {notifications.filter(n => n.is_announcement).length === 0
-                      ? <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>No announcements yet.</p>
-                      : notifications.filter(n => n.is_announcement).map((ann, i) => {
-                        const { startDate, endDate, cleanMessage } = getAnnouncementDates(ann);
-                        const todayStr = new Date().toISOString().split('T')[0];
-                        const isFuture = startDate && startDate > todayStr;
-                        const isExpired = endDate && endDate < todayStr;
-                        const isActive = !isFuture && !isExpired;
-
-                        return (
-                          <div key={i} style={{ padding: '1rem', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: `1px solid ${isActive ? 'rgba(200,146,42,0.3)' : isFuture ? 'rgba(59,130,246,0.3)' : 'rgba(100,116,139,0.2)'}`, display: 'flex', gap: '1rem', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
-                            {ann.image_url && <img src={ann.image_url} alt="" style={{ width: '70px', height: '70px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />}
-                            <div style={{ flexGrow: 1 }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
-                                <div>
-                                  <p style={{ margin: 0, fontWeight: 700, fontSize: '0.92rem' }}>{ann.title}</p>
-                                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '3px', flexWrap: 'wrap' }}>
-                                    <span className={`badge ${isActive ? 'badge-success' : isFuture ? 'badge-pending' : ''}`} style={!isActive && !isFuture ? { backgroundColor: 'rgba(100,116,139,0.15)', color: '#64748b' } : {}}>
-                                      {isActive ? '● Active / Live' : isFuture ? '📅 Scheduled' : '⌛ Expired'}
-                                    </span>
-                                    <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
-                                      {startDate ? new Date(startDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
-                                      {endDate ? ` → ${new Date(endDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : ' (No expiry)'}
-                                    </span>
-                                  </div>
-                                </div>
-                                <button onClick={() => deleteAnnouncement(ann.id)} className="btn btn-danger" style={{ padding: '3px 7px', fontSize: '0.72rem' }}>Delete</button>
-                              </div>
-                              {cleanMessage && <p style={{ margin: '6px 0 0', fontSize: '0.82rem', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>{cleanMessage}</p>}
-                            </div>
-                          </div>
-                        );
-                      })
-                    }
-                  </div>
-                </div>
-              )}
             </nav>
             <div style={sidebarUserStyle}>
               <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', backgroundColor: hrUser?.role === 'admin_ruchi' ? 'var(--color-orange)' : undefined, color: hrUser?.role === 'admin_ruchi' ? '#000' : undefined, fontWeight: 700 }}>
@@ -3916,7 +3840,7 @@ const loadReimbursements = async (empId) => {
               <div style={{ flexGrow: 1, minWidth: 0, marginLeft: '0.75rem' }}>
                 <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600, color: '#fff' }}>{hrUser?.name || 'HR Admin'}</p>
                 <p style={{ margin: 0, fontSize: '0.7rem', color: hrUser?.role === 'admin_ruchi' ? 'var(--color-orange)' : 'var(--color-text-secondary)', fontWeight: hrUser?.role === 'admin_ruchi' ? 600 : 400 }}>
-                  {hrUser?.role === 'admin_ruchi' ? 'Admin / Performance Lead' : 'HR Officer'}
+                  {hrUser?.role === 'admin_ruchi' ? 'Admin / Task Lead' : 'HR Officer'}
                 </p>
               </div>
               <button onClick={async () => { await supabase.auth.signOut(); setHrUser(null); setCurrentView('splash'); }} style={logoutButtonStyle} title="Sign Out"><LogOut size={16} /></button>
@@ -3937,7 +3861,8 @@ const loadReimbursements = async (empId) => {
                     : hrActiveTab === 'relieving-letters' ? 'Relieving Letters'
                     : hrActiveTab === 'experience-letters' ? 'Experience Letters'
                     : hrActiveTab === 'notes' ? 'Confidential HR Notes' 
-                    : hrActiveTab === 'performance' ? 'Performance Management System'
+                    : hrActiveTab === 'performance' ? 'Task Management System'
+                    : hrActiveTab === 'announcements' ? 'Company Announcements'
                     : 'Employee Profiles'}
                 </h1>
                 <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
@@ -3951,7 +3876,8 @@ const loadReimbursements = async (empId) => {
                     : hrActiveTab === 'relieving-letters' ? 'Official TOSBS relieving letters with last working day and employment confirmation.'
                     : hrActiveTab === 'experience-letters' ? 'Service experience certificates and conduct appraisal records.'
                     : hrActiveTab === 'notes' ? 'Internal confidential HR memos, employee notes, and policy logs.'
-                    : hrActiveTab === 'performance' ? 'Assign tasks to employees, monitor progress, and issue performance scorecards.'
+                    : hrActiveTab === 'performance' ? 'Assign tasks to employees, monitor progress, and review deliverables.'
+                    : hrActiveTab === 'announcements' ? 'Broadcast notices, events, and company-wide updates to employee portals.'
                     : 'Manage registrations and monitor your global human capital pipelines.'}
                 </p>
               </div>
@@ -3976,6 +3902,20 @@ const loadReimbursements = async (empId) => {
                     style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   >
                     <Plus size={18} /> Assign New Task
+                  </button>
+                </div>
+              )}
+              {hrActiveTab === 'announcements' && (
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button 
+                    onClick={() => {
+                      const formElem = document.getElementById('new-announcement-card');
+                      if (formElem) formElem.scrollIntoView({ behavior: 'smooth' });
+                    }} 
+                    className="btn btn-primary" 
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Plus size={18} /> New Announcement
                   </button>
                 </div>
               )}
@@ -6789,6 +6729,390 @@ const loadReimbursements = async (empId) => {
               );
             })()}
 
+            {/* ANNOUNCEMENTS TAB */}
+            {hrActiveTab === 'announcements' && (() => {
+              const annList = notifications.filter(n => n.is_announcement);
+              const todayStr = new Date().toISOString().split('T')[0];
+
+              const processedList = annList.map(ann => {
+                const { startDate, endDate, cleanMessage } = getAnnouncementDates(ann);
+                const isFuture = startDate && startDate > todayStr;
+                const isExpired = endDate && endDate < todayStr;
+                const isActive = !isFuture && !isExpired;
+                return {
+                  ...ann,
+                  startDate,
+                  endDate,
+                  cleanMessage,
+                  isFuture,
+                  isExpired,
+                  isActive
+                };
+              });
+
+              const totalCount = processedList.length;
+              const activeCount = processedList.filter(a => a.isActive).length;
+              const scheduledCount = processedList.filter(a => a.isFuture).length;
+              const expiredCount = processedList.filter(a => a.isExpired).length;
+
+              const filteredList = processedList.filter(a => {
+                if (announcementFilter === 'active' && !a.isActive) return false;
+                if (announcementFilter === 'scheduled' && !a.isFuture) return false;
+                if (announcementFilter === 'expired' && !a.isExpired) return false;
+                if (announcementSearch.trim()) {
+                  const q = announcementSearch.toLowerCase().trim();
+                  const matchTitle = (a.title || '').toLowerCase().includes(q);
+                  const matchMsg = (a.cleanMessage || '').toLowerCase().includes(q);
+                  if (!matchTitle && !matchMsg) return false;
+                }
+                return true;
+              });
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
+                  {/* KPI Counters */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                    <div className="glass-card" style={{ padding: '1.25rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Broadcasts</p>
+                          <h3 style={{ margin: '4px 0 0', fontSize: '1.8rem', fontWeight: 800 }}>{totalCount}</h3>
+                        </div>
+                        <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(200,146,42,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-orange)' }}>
+                          <Bell size={22} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="glass-card" style={{ padding: '1.25rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Active & Live</p>
+                          <h3 style={{ margin: '4px 0 0', fontSize: '1.8rem', fontWeight: 800, color: 'var(--color-success)' }}>{activeCount}</h3>
+                        </div>
+                        <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-success)' }}>
+                          <CheckCircle2 size={22} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="glass-card" style={{ padding: '1.25rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Scheduled Ahead</p>
+                          <h3 style={{ margin: '4px 0 0', fontSize: '1.8rem', fontWeight: 800, color: '#3b82f6' }}>{scheduledCount}</h3>
+                        </div>
+                        <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(59,130,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
+                          <Calendar size={22} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="glass-card" style={{ padding: '1.25rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Past / Expired</p>
+                          <h3 style={{ margin: '4px 0 0', fontSize: '1.8rem', fontWeight: 800, color: '#94a3b8' }}>{expiredCount}</h3>
+                        </div>
+                        <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(148,163,184,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                          <Clock size={22} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Main Grid: Form + Feed */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(340px, 440px) 1fr', gap: '1.75rem', alignItems: 'start' }}>
+                    {/* Left: Broadcast Form */}
+                    <div id="new-announcement-card" className="glass-card" style={{ padding: '1.75rem', position: 'sticky', top: '2rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem', paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: 'rgba(200,146,42,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-orange)' }}>
+                          <Send size={18} />
+                        </div>
+                        <div>
+                          <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>New Broadcast</h3>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>Publish to all employee portals</p>
+                        </div>
+                      </div>
+
+                      {announcementSuccessMsg && (
+                        <div style={{ padding: '0.85rem 1rem', backgroundColor: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '10px', color: 'var(--color-success)', fontSize: '0.85rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <CheckCircle2 size={18} />
+                          <span><strong>{announcementSuccessMsg}</strong></span>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Announcement Title *</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Office Closed on Diwali Festival"
+                            value={announcementForm.title}
+                            onChange={(e) => setAnnouncementForm({ ...announcementForm, title: e.target.value })}
+                            className="form-input"
+                            required
+                          />
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Start Date</label>
+                            <input
+                              type="date"
+                              value={announcementForm.start_date || announcementForm.scheduled_date || ''}
+                              onChange={(e) => setAnnouncementForm({ ...announcementForm, start_date: e.target.value, scheduled_date: e.target.value })}
+                              className="form-input"
+                            />
+                            <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>Blank = goes live today</span>
+                          </div>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>End Date</label>
+                            <input
+                              type="date"
+                              value={announcementForm.end_date || ''}
+                              onChange={(e) => setAnnouncementForm({ ...announcementForm, end_date: e.target.value })}
+                              className="form-input"
+                              min={announcementForm.start_date || announcementForm.scheduled_date || todayStr}
+                            />
+                            <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>Optional expiry date</span>
+                          </div>
+                        </div>
+
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Announcement Message</label>
+                          <textarea
+                            placeholder="Provide details, event schedule, instructions, or festive wishes..."
+                            value={announcementForm.message}
+                            onChange={(e) => setAnnouncementForm({ ...announcementForm, message: e.target.value })}
+                            className="form-input"
+                            style={{ minHeight: '110px', resize: 'vertical' }}
+                          />
+                        </div>
+
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Image Attachment (Optional)</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleAnnouncementImageUpload}
+                            className="form-input"
+                            style={{ padding: '0.45rem' }}
+                          />
+                          {announcementImageFile && (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem', padding: '0.4rem 0.6rem', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '6px' }}>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--color-success)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                ✓ {announcementImageFile}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAnnouncementImageFile(null);
+                                  setAnnouncementForm(prev => ({ ...prev, image_url: '' }));
+                                }}
+                                style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '0.75rem', cursor: 'pointer', padding: '2px 4px' }}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          )}
+                          {announcementForm.image_url && (
+                            <img
+                              src={announcementForm.image_url}
+                              alt="Preview"
+                              style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', borderRadius: '8px', marginTop: '0.6rem', border: '1px solid rgba(255,255,255,0.1)' }}
+                            />
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={sendAnnouncement}
+                          className="btn btn-primary"
+                          disabled={announcementSubmitting}
+                          style={{ width: '100%', padding: '0.75rem', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '0.5rem' }}
+                        >
+                          {announcementSubmitting ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin" /> Publishing...
+                            </>
+                          ) : (announcementForm.start_date || announcementForm.scheduled_date) && (announcementForm.start_date || announcementForm.scheduled_date) > todayStr ? (
+                            <>
+                              <Calendar size={16} /> Schedule Broadcast
+                            </>
+                          ) : (
+                            <>
+                              <Send size={16} /> Publish Announcement
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Right: Broadcast Feed */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* Search & Filters */}
+                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                          <Search size={16} color="var(--color-text-muted)" style={{ position: 'absolute', left: '12px' }} />
+                          <input
+                            type="text"
+                            placeholder="Search broadcasts by title or keyword..."
+                            value={announcementSearch}
+                            onChange={(e) => setAnnouncementSearch(e.target.value)}
+                            style={{ paddingLeft: '2.4rem', fontSize: '0.85rem' }}
+                            className="form-input"
+                          />
+                          {announcementSearch && (
+                            <button
+                              onClick={() => setAnnouncementSearch('')}
+                              style={{ position: 'absolute', right: '10px', background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer' }}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          {[
+                            { id: 'all', label: 'All', count: totalCount },
+                            { id: 'active', label: 'Active / Live', count: activeCount },
+                            { id: 'scheduled', label: 'Scheduled', count: scheduledCount },
+                            { id: 'expired', label: 'Expired', count: expiredCount }
+                          ].map(f => (
+                            <button
+                              key={f.id}
+                              type="button"
+                              onClick={() => setAnnouncementFilter(f.id)}
+                              className={announcementFilter === f.id ? 'btn btn-primary' : 'btn btn-secondary'}
+                              style={{
+                                padding: '4px 12px',
+                                fontSize: '0.78rem',
+                                borderRadius: '20px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                              }}
+                            >
+                              <span>{f.label}</span>
+                              <span style={{
+                                fontSize: '0.7rem',
+                                padding: '1px 6px',
+                                borderRadius: '10px',
+                                backgroundColor: announcementFilter === f.id ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.08)'
+                              }}>
+                                {f.count}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Feed cards list */}
+                      {filteredList.length === 0 ? (
+                        <div className="glass-card" style={{ textAlign: 'center', padding: '3.5rem 1.5rem' }}>
+                          <div style={{ width: '56px', height: '56px', borderRadius: '14px', backgroundColor: 'rgba(200,146,42,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-orange)', margin: '0 auto 1rem' }}>
+                            <Bell size={28} />
+                          </div>
+                          <h3 style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>No Announcements Found</h3>
+                          <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', maxWidth: '380px', margin: '0 auto' }}>
+                            {announcementSearch || announcementFilter !== 'all'
+                              ? 'No broadcasts match your search or filter criteria. Try resetting the filters.'
+                              : 'No company announcements have been broadcasted yet. Use the form on the left to publish your first announcement.'}
+                          </p>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          {filteredList.map((ann, idx) => {
+                            const borderColor = ann.isActive
+                              ? 'rgba(200,146,42,0.35)'
+                              : ann.isFuture
+                              ? 'rgba(59,130,246,0.35)'
+                              : 'rgba(100,116,139,0.2)';
+
+                            const badgeStyle = ann.isActive
+                              ? { backgroundColor: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' }
+                              : ann.isFuture
+                              ? { backgroundColor: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)' }
+                              : { backgroundColor: 'rgba(100,116,139,0.15)', color: '#94a3b8', border: '1px solid rgba(100,116,139,0.25)' };
+
+                            const badgeText = ann.isActive ? '● Live' : ann.isFuture ? '📅 Scheduled' : '⌛ Expired';
+
+                            return (
+                              <div
+                                key={ann.id || idx}
+                                className="glass-card"
+                                style={{
+                                  padding: '1.35rem',
+                                  border: `1px solid ${borderColor}`,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '0.9rem',
+                                  transition: 'all 0.2s ease'
+                                }}
+                              >
+                                {/* Top Header */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '3px 9px', borderRadius: '20px', ...badgeStyle }}>
+                                      {badgeText}
+                                    </span>
+                                    <span style={{ fontSize: '0.74rem', color: 'var(--color-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                      <CalendarDays size={13} />
+                                      {ann.startDate ? new Date(ann.startDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Immediate'}
+                                      {ann.endDate ? ` → ${new Date(ann.endDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : ' (No expiry)'}
+                                    </span>
+                                  </div>
+
+                                  <button
+                                    onClick={() => deleteAnnouncement(ann.id)}
+                                    className="btn btn-danger"
+                                    style={{ padding: '4px 9px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                    title="Delete Announcement"
+                                  >
+                                    <Trash2 size={13} /> Delete
+                                  </button>
+                                </div>
+
+                                {/* Title */}
+                                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#fff', lineHeight: 1.35 }}>
+                                  {ann.title}
+                                </h3>
+
+                                {/* Image Preview */}
+                                {ann.image_url && (
+                                  <div style={{ width: '100%', maxHeight: '220px', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                    <img
+                                      src={ann.image_url}
+                                      alt={ann.title}
+                                      style={{ width: '100%', height: '100%', maxHeight: '220px', objectFit: 'cover', display: 'block' }}
+                                    />
+                                  </div>
+                                )}
+
+                                {/* Message */}
+                                {ann.cleanMessage && (
+                                  <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--color-text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                                    {ann.cleanMessage}
+                                  </p>
+                                )}
+
+                                {/* Footer meta */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.6rem', borderTop: '1px solid rgba(255,255,255,0.05)', fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                                  <span>TOSBS Internal Broadcast</span>
+                                  <span>{ann.created_at ? new Date(ann.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
           </div>
         </div>
       )}
@@ -6812,7 +7136,7 @@ const loadReimbursements = async (empId) => {
                 className="btn btn-secondary" 
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
               >
-                <TrendingUp size={16} /> Assign Task
+                <CheckSquare size={16} /> Assign Task
               </button>
               {selectedEmp.status === 'digilocker_verified' && (
                 <button onClick={() => handleApproveOnboarding(selectedEmp.id)} className="btn btn-primary">Approve Onboarding ✓</button>
@@ -7387,7 +7711,7 @@ const loadReimbursements = async (empId) => {
                 className={attendanceTab === 'performance' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} 
                 style={attendanceTab === 'performance' ? sidebarLinkActiveStyle : sidebarLinkStyle}
               >
-                <TrendingUp size={18} /><span>My Tasks & Performance</span>
+                <CheckSquare size={18} /><span>My Tasks</span>
                 {employeeTasks.filter(t => t.status === 'assigned').length > 0 && (
                   <span style={badgeCountStyle}>{employeeTasks.filter(t => t.status === 'assigned').length}</span>
                 )}
@@ -8820,17 +9144,17 @@ const loadReimbursements = async (empId) => {
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '4px' }}>
                         <span style={{ fontSize: '0.78rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-orange)', letterSpacing: '0.8px' }}>
-                          Performance Management System
+                          Task Management System
                         </span>
                         <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700, backgroundColor: 'rgba(255,255,255,0.1)', color: '#fff' }}>
-                          Official TOSBS PMS
+                          Official TOSBS Tasks
                         </span>
                       </div>
                       <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '0 0 4px', color: '#fff' }}>
-                        My Deliverables & Performance Scorecards
+                        My Tasks & Deliverables
                       </h2>
                       <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
-                        Execute assigned responsibilities from Ruchi, hand over deliverables, and inspect your evaluated scorecards.
+                        Execute assigned responsibilities, hand over deliverables, and inspect your evaluated scorecards.
                       </p>
                     </div>
 
@@ -8888,7 +9212,7 @@ const loadReimbursements = async (empId) => {
                       </div>
                       <h3 style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>No Tasks Assigned Yet</h3>
                       <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', maxWidth: '420px', margin: '0 auto', lineHeight: 1.5 }}>
-                        You currently do not have any active performance tasks assigned by Ruchi. When a task is assigned, it will appear here with instructions, due dates, and submission controls.
+                        You currently do not have any active tasks assigned. When a task is assigned, it will appear here with instructions, due dates, and submission controls.
                       </p>
                     </div>
                   ) : (

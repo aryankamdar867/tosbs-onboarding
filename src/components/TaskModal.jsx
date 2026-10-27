@@ -29,7 +29,7 @@ export const TaskModal = ({
   });
   const [description, setDescription] = useState(task?.description || '');
   const [estimatedHours, setEstimatedHours] = useState(task?.estimated_hours || '8');
-  const [assignedBy, setAssignedBy] = useState(task?.assigned_by || currentUser?.name || 'Performance Lead');
+  const [assignedBy, setAssignedBy] = useState(task?.assigned_by || currentUser?.name || 'Task Lead');
 
   // Form State for Employee Submission
   const [submissionNotes, setSubmissionNotes] = useState(task?.submission_notes || '');
@@ -72,7 +72,7 @@ export const TaskModal = ({
         due_date: dueDate,
         description: description.trim(),
         estimated_hours: estimatedHours,
-        assigned_by: assignedBy.trim() || currentUser?.name || 'Performance Lead',
+        assigned_by: assignedBy.trim() || currentUser?.name || 'Task Lead',
         assigned_at: task?.assigned_at || now,
         status: task?.status || 'assigned',
         submission_notes: task?.submission_notes || '',
@@ -161,7 +161,7 @@ export const TaskModal = ({
         if (updErr) throw updErr;
       }
 
-      setSuccessMsg('Task submitted successfully! Ruchi will review and evaluate your performance scorecard.');
+      setSuccessMsg('Task submitted successfully! Lead will review and evaluate your deliverables.');
       onTaskSaved(updatedTaskPayload);
       setTimeout(() => {
         onClose();
@@ -228,7 +228,7 @@ export const TaskModal = ({
                 {isSubmitMode ? 'Submit Completed Task' : isEditMode ? 'Edit Assigned Task' : 'Assign New Task'}
               </h2>
               <p style={{ margin: '2px 0 0 0', fontSize: '0.78rem', color: 'var(--color-text-secondary)' }}>
-                {isSubmitMode ? 'Send deliverable to your manager to evaluate & issue your scorecard' : 'TOSBS Performance Management System'}
+                {isSubmitMode ? 'Send deliverable to your manager to evaluate & issue your scorecard' : 'TOSBS Task Management System'}
               </p>
             </div>
           </div>
