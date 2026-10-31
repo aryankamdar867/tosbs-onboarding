@@ -521,56 +521,13 @@ function App() {
     const emailClean = (hrEmail || '').trim().toLowerCase();
     const passClean = (hrPassword || '').trim();
 
-    // If a team lead logs in through the HR login form, redirect them to the Performance Dashboard (HR view is hidden)
-    if (['amar', 'amartosbs', 'amar@tosbs.com'].includes(emailClean) && ['tosbs@011', 'amar@011', 'amar', 'tosbs'].includes(passClean)) {
-      setLeadUser({
-        id: 'amar',
-        username: 'amar',
-        name: 'Amar',
-        role: 'lead_amar',
-        title: 'Task Lead (Amar)',
-        department: 'Operations & Tech',
-        avatar: 'AM'
-      });
-      setCurrentView('performance-dashboard');
-      loadPerformanceData();
-      loadEmployees();
+    // Check if team leads attempt to sign in on the HR portal
+    if (['ruchi', 'ruchitosbs', 'ruchi@tosbs.com', 'amar', 'amartosbs', 'amar@tosbs.com', 'riya', 'riyatosbs', 'riya@tosbs.com'].includes(emailClean)) {
+      setHrLoginError('Access denied: The HR portal can only be accessed by HR personnel. Team leads must sign in via the Task Portal.');
       return;
     }
 
-    if (['ruchi', 'ruchitosbs', 'ruchi@tosbs.com'].includes(emailClean) && ['tosbs@011', 'ruchi@011', 'ruchi', 'tosbs'].includes(passClean)) {
-      setLeadUser({
-        id: 'ruchi',
-        username: 'ruchi',
-        name: 'Ruchi',
-        role: 'lead_ruchi',
-        title: 'Task Lead (Ruchi)',
-        department: 'Operations & Business',
-        avatar: 'RU'
-      });
-      setCurrentView('performance-dashboard');
-      loadPerformanceData();
-      loadEmployees();
-      return;
-    }
-
-    if (['riya', 'riyatosbs', 'riya@tosbs.com'].includes(emailClean) && ['tosbs@011', 'riya@011', 'riya', 'tosbs'].includes(passClean)) {
-      setLeadUser({
-        id: 'riya',
-        username: 'riya',
-        name: 'Riya',
-        role: 'lead_riya',
-        title: 'Task Lead (Riya)',
-        department: 'Operations & Delivery',
-        avatar: 'RI'
-      });
-      setCurrentView('performance-dashboard');
-      loadPerformanceData();
-      loadEmployees();
-      return;
-    }
-
-    const isGeneralHr = (emailClean === 'hrtosbs' || emailClean === 'admin@tosbs.com') && passClean === 'tosbs@011';
+    const isGeneralHr = (emailClean === 'hrtosbs' || emailClean === 'admin@tosbs.com' || emailClean === 'hr@tosbs.com' || emailClean === 'hr') && (passClean === 'tosbs@011' || passClean === 'hr@011' || passClean === 'tosbs');
 
     if (isGeneralHr) {
       setHrUser({ email: 'hrtosbs@tosbs.com', name: 'HR Admin', role: 'admin' });
@@ -579,7 +536,7 @@ function App() {
       loadHrCelebrations();
       loadPerformanceData();
     } else {
-      setHrLoginError('Invalid username or password.');
+      setHrLoginError('Invalid username or password. The HR portal can only be accessed by authorized HR personnel.');
     }
   };
 
@@ -3613,17 +3570,17 @@ const loadReimbursements = async (empId) => {
         <div style={loginWrapperStyle}>
           <div className="glass-card" style={{ width: '100%', maxWidth: '420px', padding: '2.5rem' }}>
             <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-              <h2 style={{ fontSize: '1.8rem', marginBottom: '0.5rem' }}>HR & Admin Portal Login</h2>
-              <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>Sign in as HR Officer or Admin Ruchi</p>
+              <h2 style={{ fontSize: '1.8rem', marginBottom: '0.5rem' }}>HR Portal Login</h2>
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>Authorized HR personnel only</p>
             </div>
             <form onSubmit={handleHrLogin}>
               <div className="form-group">
-                <label className="form-label">Username</label>
-                <input type="text" value={hrEmail} onChange={(e) => setHrEmail(e.target.value)} className="form-input" placeholder="Username (hrtosbs / ruchi)" required />
+                <label className="form-label">HR Username</label>
+                <input type="text" value={hrEmail} onChange={(e) => setHrEmail(e.target.value)} className="form-input" placeholder="hrtosbs" required autoFocus />
               </div>
               <div className="form-group" style={{ marginBottom: '1.75rem' }}>
                 <label className="form-label">Password</label>
-                <input type="password" value={hrPassword} onChange={(e) => setHrPassword(e.target.value)} className="form-input" required />
+                <input type="password" value={hrPassword} onChange={(e) => setHrPassword(e.target.value)} className="form-input" placeholder="••••••••" required />
               </div>
               {hrLoginError && (
                 <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-danger-bg)', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--color-danger)', borderRadius: '8px', fontSize: '0.8rem', marginBottom: '1rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -3631,7 +3588,7 @@ const loadReimbursements = async (empId) => {
                 </div>
               )}
               <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem' }}>
-                <button type="button" onClick={() => setCurrentView('splash')} className="btn btn-secondary" style={{ flex: 1 }}>Back</button>
+                <button type="button" onClick={() => { setHrLoginError(''); setCurrentView('splash'); }} className="btn btn-secondary" style={{ flex: 1 }}>Back</button>
                 <button type="submit" className="btn btn-primary" style={{ flex: 2 }}>Log In <Lock size={16} /></button>
               </div>
             </form>
@@ -3834,13 +3791,13 @@ const loadReimbursements = async (empId) => {
               </button>
             </nav>
             <div style={sidebarUserStyle}>
-              <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', backgroundColor: hrUser?.role === 'admin_ruchi' ? 'var(--color-orange)' : undefined, color: hrUser?.role === 'admin_ruchi' ? '#000' : undefined, fontWeight: 700 }}>
-                {hrUser?.role === 'admin_ruchi' ? 'RA' : 'HR'}
+              <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', fontWeight: 700 }}>
+                HR
               </div>
               <div style={{ flexGrow: 1, minWidth: 0, marginLeft: '0.75rem' }}>
                 <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600, color: '#fff' }}>{hrUser?.name || 'HR Admin'}</p>
-                <p style={{ margin: 0, fontSize: '0.7rem', color: hrUser?.role === 'admin_ruchi' ? 'var(--color-orange)' : 'var(--color-text-secondary)', fontWeight: hrUser?.role === 'admin_ruchi' ? 600 : 400 }}>
-                  {hrUser?.role === 'admin_ruchi' ? 'Admin / Task Lead' : 'HR Officer'}
+                <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+                  HR Officer
                 </p>
               </div>
               <button onClick={async () => { await supabase.auth.signOut(); setHrUser(null); setCurrentView('splash'); }} style={logoutButtonStyle} title="Sign Out"><LogOut size={16} /></button>
@@ -6537,7 +6494,7 @@ const loadReimbursements = async (empId) => {
                                   </div>
                                 </div>
                                 <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '4px', marginTop: '4px', color: 'var(--color-text-secondary)' }}>
-                                  Assigned By: <strong style={{ color: '#fff' }}>{t.assigned_by || 'Ruchi (Admin)'}</strong>
+                                  Assigned By: <strong style={{ color: '#fff' }}>{t.assigned_by || 'Task Lead'}</strong>
                                 </div>
                                 <div style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
                                   Due Date: <strong style={{ color: isOverdue ? '#ef4444' : '#fff' }}>{t.due_date}</strong>
@@ -6605,7 +6562,7 @@ const loadReimbursements = async (empId) => {
                                     </span>
                                   </div>
                                   <div style={{ color: 'var(--color-text-secondary)', fontSize: '0.75rem' }}>
-                                    Evaluated by <strong>{t.scorecard.evaluatorName || 'Ruchi (Admin)'}</strong> on{' '}
+                                    Evaluated by <strong>{t.scorecard.evaluatorName || 'Task Lead'}</strong> on{' '}
                                     {new Date(t.scorecard.evaluationDate || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                                   </div>
                                 </div>
@@ -9321,7 +9278,7 @@ const loadReimbursements = async (empId) => {
                                 fontSize: '0.78rem'
                               }}>
                                 <div style={{ color: 'var(--color-text-secondary)', marginBottom: '3px' }}>
-                                  Assigned By: <strong style={{ color: '#fff' }}>{task.assigned_by || 'Ruchi (Admin)'}</strong>
+                                  Assigned By: <strong style={{ color: '#fff' }}>{task.assigned_by || 'Task Lead'}</strong>
                                 </div>
                                 <div style={{ color: 'var(--color-text-secondary)', marginBottom: '3px' }}>
                                   Due Date: <strong style={{ color: isOverdue ? '#ef4444' : '#fff' }}>{task.due_date}</strong>
@@ -9393,7 +9350,7 @@ const loadReimbursements = async (empId) => {
                                     </span>
                                   </div>
                                   <div style={{ color: 'var(--color-text-secondary)', fontSize: '0.78rem' }}>
-                                    Official Scorecard issued by <strong>{task.scorecard.evaluatorName || 'Ruchi (Admin)'}</strong> on{' '}
+                                    Official Scorecard issued by <strong>{task.scorecard.evaluatorName || 'Task Lead'}</strong> on{' '}
                                     {new Date(task.scorecard.evaluationDate || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                                   </div>
                                 </div>

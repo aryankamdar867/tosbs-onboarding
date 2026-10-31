@@ -296,7 +296,7 @@ export const TaskModal = ({
                   <span>•</span>
                   <span>Due: <strong style={{ color: '#fff' }}>{task.due_date}</strong></span>
                   <span>•</span>
-                  <span>Assigned By: <strong style={{ color: '#fff' }}>{task.assigned_by || 'Ruchi (Admin)'}</strong></span>
+                  <span>Assigned By: <strong style={{ color: '#fff' }}>{task.assigned_by || 'Task Lead'}</strong></span>
                 </div>
                 {task.description && (
                   <p style={{ margin: '8px 0 0', fontSize: '0.82rem', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
@@ -342,7 +342,7 @@ export const TaskModal = ({
                   className="btn btn-primary"
                   style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                 >
-                  <Send size={16} /> {isLoading ? 'Submitting...' : 'Submit to Ruchi'}
+                  <Send size={16} /> {isLoading ? 'Submitting...' : (task?.assigned_by ? `Submit to ${task.assigned_by}` : 'Submit Deliverable')}
                 </button>
               </div>
             </form>

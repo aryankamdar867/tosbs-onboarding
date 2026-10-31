@@ -418,7 +418,7 @@ export const ScorecardModal = ({
                 </div>
                 <div>
                   <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '0.75rem' }}>Assigned By</span>
-                  <strong style={{ color: '#fff' }}>{task.assigned_by || 'Ruchi (Admin)'}</strong>
+                  <strong style={{ color: '#fff' }}>{task.assigned_by || 'Task Lead'}</strong>
                 </div>
                 <div>
                   <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '0.75rem' }}>Completed Date</span>
@@ -649,7 +649,7 @@ export const ScorecardModal = ({
                         {gradeInfo.grade} — {gradeInfo.label}
                       </div>
                       <div style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-                        Evaluated by <strong>{task.scorecard?.evaluatorName || 'Ruchi (Admin)'}</strong> on{' '}
+                        Evaluated by <strong>{task.scorecard?.evaluatorName || 'Task Lead'}</strong> on{' '}
                         {new Date(task.scorecard?.evaluationDate || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                       </div>
                     </div>
