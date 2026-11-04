@@ -52,17 +52,55 @@ const FESTIVALS = [
   { month: '11', day: '10', name: 'Bhai Dooj', emoji: '🎗️' },
 ];
 
-// Threshold constants for attendance hours
+// Threshold constants for attendance hours & leave allowances
 export const HALF_DAY_HOURS = 4;
 export const FULL_DAY_HOURS = 8;
+export const FREE_LEAVE_DAYS_PER_MONTH = 1.0;
 
 // Shared IST date helper (UTC + 5:30)
 export const istDate = (d = new Date()) =>
   new Date(d.getTime() + 5.5 * 3600 * 1000).toISOString().split('T')[0];
 
-export const getTodaysFestivals = (d = new Date()) => {
-  const [year, mm, dd] = istDate(d).split('-');
-  return FESTIVALS.filter(f => f.month === mm && f.day === dd);
+// Default / fallback holidays (Maharashtra + National)
+export const DEFAULT_HOLIDAYS = [
+  { date: '2026-01-01', name: "New Year's Day", is_paid: true },
+  { date: '2026-01-26', name: 'Republic Day', is_paid: true },
+  { date: '2026-02-19', name: 'Chhatrapati Shivaji Maharaj Jayanti', is_paid: true },
+  { date: '2026-03-04', name: 'Holi', is_paid: true },
+  { date: '2026-03-20', name: 'Gudi Padwa', is_paid: true },
+  { date: '2026-03-21', name: 'Eid al-Fitr', is_paid: true },
+  { date: '2026-04-14', name: 'Dr. Babasaheb Ambedkar Jayanti', is_paid: true },
+  { date: '2026-05-01', name: 'Maharashtra Day / Labour Day', is_paid: true },
+  { date: '2026-05-28', name: 'Eid al-Adha', is_paid: true },
+  { date: '2026-08-15', name: 'Independence Day', is_paid: true },
+  { date: '2026-08-28', name: 'Raksha Bandhan', is_paid: true },
+  { date: '2026-09-14', name: 'Ganesh Chaturthi', is_paid: true },
+  { date: '2026-10-02', name: 'Gandhi Jayanti', is_paid: true },
+  { date: '2026-10-19', name: 'Dussehra', is_paid: true },
+  { date: '2026-11-06', name: 'Dhanteras', is_paid: true },
+  { date: '2026-11-08', name: 'Diwali', is_paid: true },
+  { date: '2026-11-10', name: 'Bhai Dooj', is_paid: true },
+  { date: '2026-12-25', name: 'Christmas', is_paid: true },
+];
+
+export const isDateHoliday = (dateStr, holidayList = DEFAULT_HOLIDAYS) => {
+  if (!dateStr || !holidayList) return false;
+  const mmdd = dateStr.slice(5);
+  return holidayList.some(h => 
+    h.date === dateStr || 
+    (h.date && h.date.slice(5) === mmdd) || 
+    (h.month && h.day && `${h.month}-${h.day}` === mmdd)
+  );
+};
+
+export const getTodaysFestivals = (d = new Date(), holidayList = DEFAULT_HOLIDAYS) => {
+  const dateStr = istDate(d);
+  const mmdd = dateStr.slice(5);
+  return (holidayList || DEFAULT_HOLIDAYS).filter(h => 
+    h.date === dateStr || 
+    (h.date && h.date.slice(5) === mmdd) || 
+    (h.month && h.day && `${h.month}-${h.day}` === mmdd)
+  );
 };
 
 // Paginated Supabase fetch helper
@@ -88,12 +126,18 @@ export const classifyDay = ({ rec, dateStr, dow, isFestival, onLeave, doj, today
   if (doj && dateStr < doj) return 'NA';
 
   // 2. if an attendance record exists, check rec.status FIRST
+  // In classifyDay, a Sunday or holiday must resolve to 'WO'/'H' even if a 'leave' row exists
   if (rec) {
     const st = (rec.status || '').toLowerCase().trim();
     const wt = (rec.work_type || '').toLowerCase().trim();
 
+    if (st === 'leave' || st === 'l' || wt === 'leave') {
+      if (dow === 0) return 'WO';
+      if (isFestival) return 'H';
+      return 'L';
+    }
+
     if (st === 'absent' || st === 'a') return 'A';
-    if (st === 'leave' || st === 'l') return 'L';
     if (st === 'half_day' || st === 'hd') return 'HD';
     if (st === 'holiday' || st === 'h') return 'H';
     if (st === 'weekly_off' || st === 'wo') return 'WO';
@@ -302,12 +346,20 @@ function App() {
   const [summaryData, setSummaryData] = useState([]);
 
   // Leave state
-    const [leaveApplications, setLeaveApplications] = useState([]);
+  const [leaveApplications, setLeaveApplications] = useState([]);
   const [salaryMonth, setSalaryMonth] = useState(istDate().slice(0, 7));
   const [salaryConfig, setSalaryConfig] = useState({ monthly_ctc: 0, overtime_multiplier: 1.5 });
   const [salaryBreakdown, setSalaryBreakdown] = useState(null);
   const [hrSalaryEmployee, setHrSalaryEmployee] = useState('');
   const [salaryLoading, setSalaryLoading] = useState(false);
+
+  // Holidays state (managed in DB holidays table with fallback)
+  const [holidays, setHolidays] = useState(DEFAULT_HOLIDAYS);
+  const [newHoliday, setNewHoliday] = useState({ date: istDate(), name: '', is_paid: true });
+
+  // Payroll snapshots state (payroll_runs table)
+  const [payrollSnapshots, setPayrollSnapshots] = useState({});
+  const [isFinalizingPayroll, setIsFinalizingPayroll] = useState(false);
   const [hrLeaveApplications, setHrLeaveApplications] = useState([]);
   const [leaveForm, setLeaveForm] = useState({ leave_type: 'CL', from_date: '', to_date: '', reason: '' });
   const [leaveFormError, setLeaveFormError] = useState('');
@@ -412,7 +464,12 @@ function App() {
     } catch (err) { console.error('Error loading employees:', err); }
   };
 
-  useEffect(() => { if (hrUser) { loadEmployees(); loadAllOfferLetters(); loadAllExitLetters(); loadHrNotes(); loadPerformanceData(); loadHrCelebrations(); } }, [hrUser]);
+  useEffect(() => {
+    loadHolidays();
+    loadPayrollSnapshots();
+  }, []);
+
+  useEffect(() => { if (hrUser) { loadEmployees(); loadAllOfferLetters(); loadAllExitLetters(); loadHrNotes(); loadPerformanceData(); loadHrCelebrations(); loadHolidays(); loadPayrollSnapshots(); } }, [hrUser]);
 
   useEffect(() => {
     if (activeEmployee?.id) {
@@ -793,6 +850,7 @@ function App() {
   const startEditingEmployee = () => {
     setEditEmpForm({
       position: selectedEmp.position || '',
+      date_of_joining: selectedEmpDetails?.date_of_joining || '',
       phone_number: selectedEmpDetails?.phone_number || '',
       dob: selectedEmpDetails?.dob || '',
       gender: selectedEmpDetails?.gender || 'Male',
@@ -817,6 +875,7 @@ function App() {
       await supabase.from('profiles').update({ position: editEmpForm.position }).eq('id', selectedEmp.id);
       await supabase.from('employee_details').upsert({
         employee_id: selectedEmp.id,
+        date_of_joining: editEmpForm.date_of_joining || null,
         phone_number: editEmpForm.phone_number,
         dob: editEmpForm.dob || null,
         gender: editEmpForm.gender,
@@ -1150,6 +1209,115 @@ function App() {
       console.log('Attendance data received:', data);
       setHrAttendanceData(data || []);
    } catch (err) { console.error('Catch error:', err); }
+  };
+
+  const loadHolidays = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('holidays')
+        .select('*')
+        .order('date', { ascending: true });
+      if (!error && data && data.length > 0) {
+        setHolidays(data);
+      }
+    } catch (e) {
+      console.warn('Could not load holidays from database, using defaults:', e);
+    }
+  };
+
+  const handleAddHoliday = async () => {
+    if (!newHoliday.date || !newHoliday.name.trim()) {
+      alert('Please provide both holiday date and name.');
+      return;
+    }
+    try {
+      const { error } = await supabase.from('holidays').upsert({
+        date: newHoliday.date,
+        name: newHoliday.name.trim(),
+        is_paid: Boolean(newHoliday.is_paid),
+      }, { onConflict: 'date' });
+      if (error) throw error;
+      alert('Holiday saved successfully.');
+      setNewHoliday({ date: istDate(), name: '', is_paid: true });
+      await loadHolidays();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save holiday: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  const handleDeleteHoliday = async (id, date) => {
+    if (!window.confirm(`Are you sure you want to delete the holiday for ${date}?`)) return;
+    try {
+      let q = supabase.from('holidays').delete();
+      if (id) q = q.eq('id', id);
+      else q = q.eq('date', date);
+      const { error } = await q;
+      if (error) throw error;
+      setHolidays(prev => prev.filter(h => (id ? h.id !== id : h.date !== date)));
+      alert('Holiday removed.');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete holiday.');
+    }
+  };
+
+  const loadPayrollSnapshots = async (month) => {
+    try {
+      const targetMonth = month || salaryMonth;
+      const { data, error } = await supabase
+        .from('payroll_runs')
+        .select('*')
+        .eq('month', targetMonth);
+      if (!error && data) {
+        const map = {};
+        data.forEach(r => { map[r.employee_id] = r; });
+        setPayrollSnapshots(map);
+      } else {
+        setPayrollSnapshots({});
+      }
+    } catch {
+      setPayrollSnapshots({});
+    }
+  };
+
+  const handleFinalizePayrollMonth = async () => {
+    if (!window.confirm(`Are you sure you want to finalize payroll for ${salaryMonth}? This will compute and snapshot the salary breakdown for all active employees, and unlock official payslip downloads.`)) return;
+    try {
+      setIsFinalizingPayroll(true);
+      const activeEmps = employees.filter(e => e.status === 'approved' || e.status === 'digilocker_verified');
+      if (!activeEmps.length) {
+        alert('No active employees found to finalize payroll.');
+        setIsFinalizingPayroll(false);
+        return;
+      }
+
+      let count = 0;
+      for (const emp of activeEmps) {
+        const breakdown = await calculateSalaryForEmployee(emp.id, salaryMonth);
+        if (breakdown) {
+          const { error } = await supabase.from('payroll_runs').upsert({
+            employee_id: emp.id,
+            month: salaryMonth,
+            breakdown: breakdown,
+            finalized_at: new Date().toISOString(),
+            finalized_by: user?.id || null,
+          }, { onConflict: 'employee_id,month' });
+          if (!error) count++;
+        }
+      }
+
+      await loadPayrollSnapshots(salaryMonth);
+      if (hrSalaryEmployee) {
+        await computeSalary(hrSalaryEmployee, salaryMonth);
+      }
+      alert(`Payroll for ${salaryMonth} finalized successfully for ${count} employee(s).`);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to finalize payroll: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsFinalizingPayroll(false);
+    }
   };
 
   const handleManualAttendance = async () => {
@@ -1529,11 +1697,13 @@ function App() {
       let compOffUsed = 0;
       let naDays = 0;
 
+      const dailyCodes = {};
+
       // Loop every calendar day and classify via shared classifyDay
       for (let d = 1; d <= daysInMonth; d++) {
         const dateStr = `${year}-${month}-${String(d).padStart(2, '0')}`;
         const dow = new Date(parseInt(year), parseInt(month) - 1, d).getDay();
-        const isFestival = FESTIVALS.some(f => f.month === month && f.day === String(d).padStart(2, '0'));
+        const isFestival = isDateHoliday(dateStr, holidays);
         const onLeave = approvedLeaves.some(l => dateStr >= l.from_date && dateStr <= l.to_date);
         const rec = dateMap[dateStr];
 
@@ -1543,6 +1713,7 @@ function App() {
         }
 
         const code = classifyDay({ rec, dateStr, dow, isFestival, onLeave, doj, todayStr });
+        dailyCodes[d] = code;
 
         if (code === 'NA') {
           naDays++;
@@ -1566,8 +1737,56 @@ function App() {
         }
       }
 
-      const leavesAllowed = 1.0;
-      const leavesTaken = absentDays + leaveDays + (halfDays * 0.5);
+      // Sandwich rule algorithm:
+      // A Sunday ('WO') or holiday ('H') counts as a penalty day if the nearest working day before it
+      // AND the nearest working day after it (within the same month) are both 'A' or 'L' (half days do not trigger it).
+      // Consecutive non-working days (e.g. Sunday + festival) between two absences count as one sandwich block,
+      // and every day in the block is penalised.
+      let sandwichPenaltyDays = 0;
+      let inBlock = false;
+      let blockStart = 0;
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const isNonWorking = dailyCodes[d] === 'WO' || dailyCodes[d] === 'H';
+        if (isNonWorking) {
+          if (!inBlock) {
+            inBlock = true;
+            blockStart = d;
+          }
+        }
+
+        if (inBlock && (!isNonWorking || d === daysInMonth)) {
+          const blockEnd = isNonWorking ? d : d - 1;
+          inBlock = false;
+
+          // Find nearest working day before blockStart within the same month
+          let beforeCode = null;
+          for (let b = blockStart - 1; b >= 1; b--) {
+            if (dailyCodes[b] !== 'WO' && dailyCodes[b] !== 'H') {
+              beforeCode = dailyCodes[b];
+              break;
+            }
+          }
+
+          // Find nearest working day after blockEnd within the same month
+          let afterCode = null;
+          for (let a = blockEnd + 1; a <= daysInMonth; a++) {
+            if (dailyCodes[a] !== 'WO' && dailyCodes[a] !== 'H') {
+              afterCode = dailyCodes[a];
+              break;
+            }
+          }
+
+          const isAbsentOrLeave = (c) => c === 'A' || c === 'L';
+          if (beforeCode && afterCode && isAbsentOrLeave(beforeCode) && isAbsentOrLeave(afterCode)) {
+            sandwichPenaltyDays += (blockEnd - blockStart + 1);
+          }
+        }
+      }
+
+      const leavesAllowed = FREE_LEAVE_DAYS_PER_MONTH;
+      const baseLeavesTaken = absentDays + leaveDays + (halfDays * 0.5);
+      const leavesTaken = baseLeavesTaken + sandwichPenaltyDays;
       const excessLeaves = Math.max(0, leavesTaken - leavesAllowed);
       const eligibleDays = Math.max(0, daysInMonth - naDays);
       const netPayDays = Math.max(0, eligibleDays - excessLeaves);
@@ -1576,6 +1795,12 @@ function App() {
       const perDayRate = daysInMonth > 0 ? monthlyCtc / daysInMonth : 0;
       const grossEarned = Math.round(perDayRate * netPayDays);
       const leaveDeduction = Math.round((daysInMonth - netPayDays) * perDayRate);
+
+      // Plain absence deduction and sandwich rule deduction broken out for HR UI
+      const sandwichDeduction = Math.min(Math.round(sandwichPenaltyDays * perDayRate), leaveDeduction);
+      const plainAbsenceDeduction = Math.max(0, leaveDeduction - sandwichDeduction);
+      const plainBillableAbsents = Math.max(0, excessLeaves - sandwichPenaltyDays);
+      const extraDaysWorked = 0;
 
       let tds = 0;
       if (includeTds) {
@@ -1587,6 +1812,8 @@ function App() {
       const netSalary = Math.max(0, grossEarned - tds);
 
       return {
+        employeeId,
+        month: monthStr,
         monthlyCtc,
         perDayRate: parseFloat(perDayRate.toFixed(2)),
         workingDaysInMonth,
@@ -1602,6 +1829,10 @@ function App() {
         eligibleDays,
         naDays,
         billableAbsents: parseFloat((naDays + excessLeaves).toFixed(1)),
+        plainBillableAbsents,
+        sandwichPenaltyDays,
+        sandwichDeduction,
+        plainAbsenceDeduction,
         freeLeaveAllowance: leavesAllowed,
         halfDays,
         leaveDays,
@@ -1635,8 +1866,33 @@ function App() {
     if (!employeeId || !monthStr) return;
     setSalaryLoading(true);
     try {
+      // Check if finalized snapshot exists in payroll_runs first
+      try {
+        const { data: snapshot } = await supabase
+          .from('payroll_runs')
+          .select('*')
+          .eq('employee_id', employeeId)
+          .eq('month', monthStr)
+          .maybeSingle();
+
+        if (snapshot && snapshot.breakdown) {
+          setSalaryBreakdown({ ...snapshot.breakdown, isFinalized: true, finalizedAt: snapshot.finalized_at });
+          if (snapshot.breakdown.monthlyCtc) {
+            setSalaryConfig({
+              monthly_ctc: snapshot.breakdown.monthlyCtc,
+              tds_enabled: snapshot.breakdown.includeTds,
+              overtime_multiplier: 1
+            });
+          }
+          setSalaryLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.warn('Could not check payroll snapshot:', e);
+      }
+
       const breakdown = await calculateSalaryForEmployee(employeeId, monthStr);
-      setSalaryBreakdown(breakdown);
+      setSalaryBreakdown(breakdown ? { ...breakdown, isFinalized: false } : null);
       if (breakdown) {
         setSalaryConfig({
           monthly_ctc: breakdown.monthlyCtc,
@@ -1790,28 +2046,17 @@ function App() {
     }
   };
 
-  const isPayslipAvailableForMonth = (monthStr) => {
-    const today = new Date();
-    const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-
-    if (monthStr < currentMonthStr) {
-      return { available: true, message: 'Available' };
-    } else if (monthStr === currentMonthStr) {
-      if (today.getDate() >= 21) {
-        return { available: true, message: 'Available' };
-      } else {
-        const daysLeft = 21 - today.getDate();
-        return {
-          available: false,
-          message: `Salary slips for ${new Date(monthStr + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })} will be released on the 21st (in ${daysLeft} day${daysLeft > 1 ? 's' : ''}).`
-        };
-      }
-    } else {
-      return { available: false, message: 'Future month salary slips are not available yet.' };
+  const isPayslipAvailableForMonth = (monthStr, isSnapshotFinalized = false) => {
+    if (isSnapshotFinalized) {
+      return { available: true, message: 'Official Finalized Payslip' };
     }
+    return {
+      available: false,
+      message: `Salary slips for ${new Date(monthStr + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })} will be unlocked once HR finalizes monthly payroll.`
+    };
   };
 
-  const downloadEmployeePayslip = async (emp, breakdown, monthStr) => {
+  const downloadEmployeePayslip = async (emp, breakdown, monthStr, isProvisional = false) => {
     try {
       if (!breakdown || !emp) {
         alert('No salary calculation available for this month.');
@@ -1826,7 +2071,7 @@ function App() {
         }
       } catch (e) {}
 
-      setSelectedPayslipData({ emp: empWithDetails, breakdown, monthStr });
+      setSelectedPayslipData({ emp: empWithDetails, breakdown, monthStr, isProvisional });
       setIsPayslipModalOpen(true);
     } catch (err) {
       console.error(err);
@@ -1912,9 +2157,27 @@ function App() {
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) dates.push(istDate(d));
 
         for (const date of dates) {
-          const { data: existing } = await supabase.from('attendance').select('id').eq('employee_id', leave.employee_id).eq('date', date).single();
-          if (existing) await supabase.from('attendance').update({ status: 'leave', work_type: 'leave' }).eq('id', existing.id);
-          else await supabase.from('attendance').insert({ employee_id: leave.employee_id, date, status: 'leave', work_type: 'leave' });
+          const dow = new Date(date + 'T00:00:00').getDay();
+          const isHoliday = isDateHoliday(date, holidays);
+
+          // Rule A: Do NOT write 'leave' attendance rows for Sundays or holidays
+          if (dow === 0 || isHoliday) continue;
+
+          // Rule A: Skip dates where the employee already has status 'present' (do not overwrite worked days)
+          const { data: existing } = await supabase
+            .from('attendance')
+            .select('id, status')
+            .eq('employee_id', leave.employee_id)
+            .eq('date', date)
+            .maybeSingle();
+
+          if (existing) {
+            const exSt = (existing.status || '').toLowerCase().trim();
+            if (exSt === 'present' || exSt === 'p') continue; // Do not overwrite worked days
+            await supabase.from('attendance').update({ status: 'leave', work_type: 'leave' }).eq('id', existing.id);
+          } else {
+            await supabase.from('attendance').insert({ employee_id: leave.employee_id, date, status: 'leave', work_type: 'leave' });
+          }
         }
 
         try {
@@ -3394,7 +3657,7 @@ const loadReimbursements = async (empId) => {
             const dateStr = `${year}-${monthStr}-${String(d).padStart(2, '0')}`;
             const dow = new Date(year, month - 1, d).getDay();
             const rec = attMap[`${emp.id}_${dateStr}`];
-            const isFestival = FESTIVALS.some(f => f.month === monthStr && f.day === String(d).padStart(2, '0'));
+            const isFestival = isDateHoliday(dateStr, holidays);
             const onLeave = (leaves || []).some(l => l.employee_id === emp.id && dateStr >= l.from_date && dateStr <= l.to_date);
 
             const code = classifyDay({ rec, dateStr, dow, isFestival, onLeave, doj, todayStr });
@@ -3818,6 +4081,9 @@ const loadReimbursements = async (empId) => {
                 <UserMinus size={18} /><span>Resignations</span>
                 {hrResignations.filter(r => r.status === 'pending').length > 0 && <span style={badgeCountStyle}>{hrResignations.filter(r => r.status === 'pending').length}</span>}
               </button>
+              <button onClick={() => { setHrActiveTab('holidays'); loadHolidays(); }} className={hrActiveTab === 'holidays' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'holidays' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
+                <CalendarDays size={18} /><span>Holidays</span>
+              </button>
               <button onClick={() => { setHrActiveTab('offer-letters'); loadAllOfferLetters(); }} className={hrActiveTab === 'offer-letters' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'offer-letters' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <FileCheck size={18} /><span>Offer Letters</span>
               </button>
@@ -3878,6 +4144,7 @@ const loadReimbursements = async (empId) => {
                     : hrActiveTab === 'offer-letters' ? 'Offer Letters & Contracts' 
                     : hrActiveTab === 'relieving-letters' ? 'Relieving Letters'
                     : hrActiveTab === 'experience-letters' ? 'Experience Letters'
+                    : hrActiveTab === 'holidays' ? 'Company Holidays & Festivals'
                     : hrActiveTab === 'notes' ? 'Confidential HR Notes' 
                     : hrActiveTab === 'performance' ? 'Task Management System'
                     : hrActiveTab === 'announcements' ? 'Company Announcements'
@@ -3893,6 +4160,7 @@ const loadReimbursements = async (empId) => {
                     : hrActiveTab === 'offer-letters' ? 'Generate, customize, and manage official TOSBS appointment and offer letters with CTC Annexure.'
                     : hrActiveTab === 'relieving-letters' ? 'Official TOSBS relieving letters with last working day and employment confirmation.'
                     : hrActiveTab === 'experience-letters' ? 'Service experience certificates and conduct appraisal records.'
+                    : hrActiveTab === 'holidays' ? 'Configure company public holidays and festival calendar for salary calculation and master sheet.'
                     : hrActiveTab === 'notes' ? 'Internal confidential HR memos, employee notes, and policy logs.'
                     : hrActiveTab === 'performance' ? 'Assign tasks to employees, monitor progress, and review deliverables.'
                     : hrActiveTab === 'announcements' ? 'Broadcast notices, events, and company-wide updates to employee portals.'
@@ -4206,18 +4474,33 @@ const loadReimbursements = async (empId) => {
             )}
             {hrActiveTab === 'salary' && (
               <div>
-                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <select className="form-select" value={hrSalaryEmployee} onChange={(e) => { setHrSalaryEmployee(e.target.value); setSalaryBreakdown(null); if (e.target.value) computeSalary(e.target.value, salaryMonth); }} style={{ maxWidth: '260px' }}>
-                    <option value="">Select employee...</option>
-                    {employees.filter(e => e.status === 'approved').map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
-                  </select>
-                  <input type="month" className="form-input" value={salaryMonth} onChange={(e) => { setSalaryMonth(e.target.value); if (hrSalaryEmployee) computeSalary(hrSalaryEmployee, e.target.value); }} style={{ maxWidth: '180px' }} />
-                  <button onClick={() => hrSalaryEmployee && computeSalary(hrSalaryEmployee, salaryMonth)} className="btn btn-primary" disabled={!hrSalaryEmployee || salaryLoading}>
-                    {salaryLoading ? 'Calculating...' : 'Calculate Salary'}
-                  </button>
-                  <button onClick={exportSalaryMasterSheet} className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <FileText size={16} /> Export Salary Master Sheet
-                  </button>
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <select className="form-select" value={hrSalaryEmployee} onChange={(e) => { setHrSalaryEmployee(e.target.value); setSalaryBreakdown(null); if (e.target.value) computeSalary(e.target.value, salaryMonth); }} style={{ maxWidth: '260px' }}>
+                      <option value="">Select employee...</option>
+                      {employees.filter(e => e.status === 'approved').map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+                    </select>
+                    <input type="month" className="form-input" value={salaryMonth} onChange={(e) => { setSalaryMonth(e.target.value); loadPayrollSnapshots(e.target.value); if (hrSalaryEmployee) computeSalary(hrSalaryEmployee, e.target.value); }} style={{ maxWidth: '180px' }} />
+                    <button onClick={() => hrSalaryEmployee && computeSalary(hrSalaryEmployee, salaryMonth)} className="btn btn-primary" disabled={!hrSalaryEmployee || salaryLoading}>
+                      {salaryLoading ? 'Calculating...' : 'Calculate Salary'}
+                    </button>
+                    <button onClick={exportSalaryMasterSheet} className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <FileText size={16} /> Export Salary Master Sheet
+                    </button>
+                  </div>
+
+                  <div>
+                    <button
+                      onClick={handleFinalizePayrollMonth}
+                      disabled={isFinalizingPayroll}
+                      className="btn btn-primary"
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: Object.keys(payrollSnapshots).length > 0 ? '#10b981' : 'var(--color-primary)' }}
+                      title="Snapshot payroll calculations for all active employees and unlock official payslips"
+                    >
+                      <CheckCircle2 size={16} />
+                      {isFinalizingPayroll ? 'Finalizing Payroll...' : Object.keys(payrollSnapshots).length > 0 ? `✓ Finalized (${Object.keys(payrollSnapshots).length}) — Re-finalize` : '🔒 Finalize Month'}
+                    </button>
+                  </div>
                 </div>
 
                 {hrSalaryEmployee && (
@@ -4248,16 +4531,26 @@ const loadReimbursements = async (empId) => {
                       <div><p style={detailLabelStyle}>Working Days</p><p style={detailValueStyle}>{salaryBreakdown.workingDaysInMonth}</p></div>
                       <div><p style={detailLabelStyle}>Present Days</p><p style={detailValueStyle}>{salaryBreakdown.presentDays}</p></div>
                       <div><p style={detailLabelStyle}>Total Absents</p><p style={{ ...detailValueStyle, color: 'var(--color-danger)' }}>{salaryBreakdown.absentDays}</p></div>
-                      <div><p style={detailLabelStyle}>Free Leave ({salaryBreakdown.freeLeaveAllowance}d)</p><p style={{ ...detailValueStyle, color: 'var(--color-success)' }}>{salaryBreakdown.freeLeaveAllowance}</p></div>
+                      <div><p style={detailLabelStyle}>Free Leave ({FREE_LEAVE_DAYS_PER_MONTH}d)</p><p style={{ ...detailValueStyle, color: 'var(--color-success)' }}>{salaryBreakdown.freeLeaveAllowance}</p></div>
                       <div><p style={detailLabelStyle}>Billable Absents</p><p style={{ ...detailValueStyle, color: 'var(--color-danger)' }}>{salaryBreakdown.billableAbsents}</p></div>
                       <div><p style={detailLabelStyle}>Half Days</p><p style={{ ...detailValueStyle, color: 'var(--color-pending)' }}>{salaryBreakdown.halfDays}</p></div>
+                      <div><p style={detailLabelStyle}>Sandwich Penalty</p><p style={{ ...detailValueStyle, color: salaryBreakdown.sandwichPenaltyDays > 0 ? 'var(--color-danger)' : 'inherit' }}>{salaryBreakdown.sandwichPenaltyDays || 0} day(s)</p></div>
                       <div><p style={detailLabelStyle}>Leave Days</p><p style={detailValueStyle}>{salaryBreakdown.leaveDays}</p></div>
                       <div><p style={detailLabelStyle}>Holidays</p><p style={detailValueStyle}>{salaryBreakdown.holidayDays}</p></div>
                       <div><p style={detailLabelStyle}>Sunday Worked</p><p style={{ ...detailValueStyle, color: 'var(--color-success)' }}>{salaryBreakdown.sundayWorkedDays}</p></div>
                     </div>
                     <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem' }}>Monthly CTC</span><span style={{ fontSize: '0.9rem' }}>₹{salaryBreakdown.monthlyCtc.toLocaleString('en-IN')}</span></div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− Absence Deduction ({salaryBreakdown.billableAbsents} days)</span><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.leaveDeduction.toLocaleString('en-IN')}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− Absence Deduction ({salaryBreakdown.plainBillableAbsents ?? salaryBreakdown.billableAbsents} days)</span>
+                        <span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{(salaryBreakdown.plainAbsenceDeduction ?? salaryBreakdown.leaveDeduction).toLocaleString('en-IN')}</span>
+                      </div>
+                      {salaryBreakdown.sandwichPenaltyDays > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− Sandwich Rule Penalty ({salaryBreakdown.sandwichPenaltyDays} day{salaryBreakdown.sandwichPenaltyDays > 1 ? 's' : ''})</span>
+                          <span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.sandwichDeduction.toLocaleString('en-IN')}</span>
+                        </div>
+                      )}
                       {salaryBreakdown.includeTds && (
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− TDS</span><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.tds.toLocaleString('en-IN')}</span></div>
                       )}
@@ -5799,6 +6092,94 @@ const loadReimbursements = async (empId) => {
               );
             })()}
 
+            {hrActiveTab === 'holidays' && (
+              <div>
+                <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
+                  <h3 style={{ fontSize: '1rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+                    📅 Add Company Holiday / Festival
+                  </h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr 140px auto', gap: '1rem', alignItems: 'flex-end' }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Date</label>
+                      <input
+                        type="date"
+                        className="form-input"
+                        value={newHoliday.date}
+                        onChange={(e) => setNewHoliday({ ...newHoliday, date: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Holiday Name</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. Maharashtra Day"
+                        value={newHoliday.name}
+                        onChange={(e) => setNewHoliday({ ...newHoliday, name: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Paid Holiday</label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', height: '38px', fontSize: '0.85rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={newHoliday.is_paid}
+                          onChange={(e) => setNewHoliday({ ...newHoliday, is_paid: e.target.checked })}
+                        />
+                        <span>Is Paid</span>
+                      </label>
+                    </div>
+                    <button onClick={handleAddHoliday} className="btn btn-primary" style={{ height: '38px', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <Plus size={16} /> Add Holiday
+                    </button>
+                  </div>
+                </div>
+
+                <div className="glass-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+                    <h3 style={{ fontSize: '1rem', margin: 0 }}>Official Company Holidays ({holidays.length})</h3>
+                    <button onClick={loadHolidays} className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}>
+                      Refresh
+                    </button>
+                  </div>
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Holiday Name</th>
+                        <th>Type</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {holidays.map((h, idx) => (
+                        <tr key={h.id || idx}>
+                          <td style={{ fontWeight: 600 }}>{h.date ? new Date(h.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}</td>
+                          <td>{h.name}</td>
+                          <td>
+                            {h.is_paid !== false ? (
+                              <span className="badge badge-success">Paid</span>
+                            ) : (
+                              <span className="badge badge-pending">Unpaid</span>
+                            )}
+                          </td>
+                          <td>
+                            <button
+                              onClick={() => handleDeleteHoliday(h.id, h.date)}
+                              className="btn btn-danger"
+                              style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             {hrActiveTab === 'notes' && (() => {
               const filteredNotes = hrNotes.filter(note => {
                 const searchLower = hrNotesSearch.toLowerCase().trim();
@@ -7204,6 +7585,7 @@ const loadReimbursements = async (empId) => {
                 <h3 style={cardTitleStyle}>Personal Information</h3>
                 {isEditingEmp ? (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">Date of Joining</label><input type="date" value={editEmpForm.date_of_joining || ''} onChange={(e) => setEditEmpForm({ ...editEmpForm, date_of_joining: e.target.value })} className="form-input" /></div>
                     <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">Phone</label><input type="tel" value={editEmpForm.phone_number} onChange={(e) => setEditEmpForm({ ...editEmpForm, phone_number: e.target.value })} className="form-input" /></div>
                     <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">Date of Birth</label><input type="date" value={editEmpForm.dob} onChange={(e) => setEditEmpForm({ ...editEmpForm, dob: e.target.value })} className="form-input" /></div>
                     <div className="form-group" style={{ marginBottom: 0 }}>
@@ -7226,6 +7608,7 @@ const loadReimbursements = async (empId) => {
                   </div>
                 ) : selectedEmpDetails ? (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div><p style={detailLabelStyle}>Date of Joining</p><p style={detailValueStyle}>{selectedEmpDetails.date_of_joining || '—'}</p></div>
                     <div><p style={detailLabelStyle}>Phone</p><p style={detailValueStyle}>{selectedEmpDetails.phone_number || '—'}</p></div>
                     <div><p style={detailLabelStyle}>Date of Birth</p><p style={detailValueStyle}>{selectedEmpDetails.dob || '—'}</p></div>
                     <div><p style={detailLabelStyle}>Gender</p><p style={detailValueStyle}>{selectedEmpDetails.gender || '—'}</p></div>
@@ -7413,7 +7796,17 @@ const loadReimbursements = async (empId) => {
                 </div>
                 <div className="form-row">
                   <div className="form-group"><label className="form-label">Date of Birth</label><input type="date" value={wizardPersonal.dob} onChange={(e) => setWizardPersonal({ ...wizardPersonal, dob: e.target.value })} className="form-input" /></div>
-                  <div className="form-group"><label className="form-label">Date of Joining</label><input type="date" value={wizardPersonal.dateOfJoining} onChange={(e) => setWizardPersonal({ ...wizardPersonal, dateOfJoining: e.target.value })} className="form-input" /></div>
+                  <div className="form-group">
+                    <label className="form-label">Date of Joining (Official)</label>
+                    <input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={wizardPersonal.dateOfJoining ? new Date(wizardPersonal.dateOfJoining + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Assigned by HR'}
+                      className="form-input"
+                      style={{ backgroundColor: 'rgba(0,0,0,0.03)', cursor: 'not-allowed', color: 'var(--color-text-secondary)' }}
+                    />
+                  </div>
                   <div className="form-group"><label className="form-label">Gender</label><select value={wizardPersonal.gender} onChange={(e) => setWizardPersonal({ ...wizardPersonal, gender: e.target.value })} className="form-select"><option>Male</option><option>Female</option><option>Other</option></select></div>
                 </div>
                 <div className="form-group"><label className="form-label">Permanent Address</label><input type="text" value={wizardPersonal.permanentAddress} onChange={(e) => setWizardPersonal({ ...wizardPersonal, permanentAddress: e.target.value })} className="form-input" placeholder="Your permanent address" /></div>
@@ -8205,7 +8598,26 @@ const loadReimbursements = async (empId) => {
                             <td>
                               <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
                                 {rec.work_type === 'wfh' && <span className="badge badge-pending">🏠 WFH</span>}
-                                {rec.work_hours >= 8 ? <span className="badge badge-success">Full Day</span> : rec.work_hours > 0 ? <span className="badge badge-pending">Half Day</span> : rec.check_in_time ? <span className="badge badge-info">In Progress</span> : <span className="badge badge-danger">Absent</span>}
+                                {(() => {
+                                  const st = (rec.status || '').toLowerCase().trim();
+                                  if (st === 'leave') return <span className="badge badge-pending">🏖️ Leave</span>;
+                                  if (st === 'holiday') return <span className="badge badge-info">🎉 Holiday</span>;
+                                  if (st === 'weekly_off') return <span className="badge badge-info">Weekly Off</span>;
+                                  if (st === 'absent') return <span className="badge badge-danger">✕ Absent</span>;
+                                  if (st === 'half_day') return <span className="badge badge-pending">Half Day</span>;
+                                  if (st === 'tour' || st === 'on_tour' || rec.work_type === 'on_tour') return <span className="badge badge-info">✈️ On Tour</span>;
+                                  if (st === 'present') {
+                                    if (rec.work_hours != null && rec.work_hours > 0) {
+                                      return rec.work_hours < HALF_DAY_HOURS ? <span className="badge badge-pending">Half Day</span> : <span className="badge badge-success">Present</span>;
+                                    }
+                                    return rec.check_in_time && !rec.check_out_time ? <span className="badge badge-info">In Progress</span> : <span className="badge badge-success">Present</span>;
+                                  }
+                                  // Fallback to work_hours if status is unspecified
+                                  if (rec.work_hours >= FULL_DAY_HOURS) return <span className="badge badge-success">Full Day</span>;
+                                  if (rec.work_hours > 0) return <span className="badge badge-pending">Half Day</span>;
+                                  if (rec.check_in_time) return <span className="badge badge-info">In Progress</span>;
+                                  return <span className="badge badge-danger">Absent</span>;
+                                })()}
                               </div>
                             </td>
                           </tr>
@@ -8270,9 +8682,16 @@ const loadReimbursements = async (empId) => {
                   <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>Calculating...</p>
                 ) : salaryBreakdown ? (
                   <div className="glass-card">
-                    <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
-                      My Salary — {new Date(salaryMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
-                    </h3>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+                      <h3 style={{ fontSize: '1.1rem', margin: 0 }}>
+                        My Salary — {new Date(salaryMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+                      </h3>
+                      {salaryBreakdown?.isFinalized ? (
+                        <span className="badge badge-success">✓ Finalized</span>
+                      ) : (
+                        <span className="badge badge-pending">⚠️ Provisional (Unfinalized)</span>
+                      )}
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                       <div><p style={detailLabelStyle}>Present Days</p><p style={detailValueStyle}>{salaryBreakdown.presentDays}</p></div>
                       <div><p style={detailLabelStyle}>Absent Days</p><p style={{ ...detailValueStyle, color: 'var(--color-danger)' }}>{salaryBreakdown.absentDays}</p></div>
@@ -8294,21 +8713,27 @@ const loadReimbursements = async (empId) => {
 
                     {/* Monthly Payslip Download Section */}
                     {(() => {
-                      const status = isPayslipAvailableForMonth(salaryMonth);
+                      const isFinalized = Boolean(salaryBreakdown?.isFinalized);
+                      const status = isPayslipAvailableForMonth(salaryMonth, isFinalized);
                       return (
                         <div style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                               <FileText size={18} color="var(--color-orange)" />
                               <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem' }}>Monthly Salary Slip</p>
+                              {isFinalized ? (
+                                <span className="badge badge-success" style={{ fontSize: '0.72rem' }}>✓ Finalized</span>
+                              ) : (
+                                <span className="badge badge-pending" style={{ fontSize: '0.72rem' }}>⚠️ Provisional</span>
+                              )}
                             </div>
                             <p style={{ margin: '3px 0 0', fontSize: '0.8rem', color: status.available ? 'var(--color-text-secondary)' : 'var(--color-pending)' }}>
-                              {status.available ? 'Your official salary slip for this month is ready to download.' : status.message}
+                              {status.available ? 'Your official salary slip for this month has been approved by HR and is ready to download.' : status.message}
                             </p>
                           </div>
                           {status.available ? (
                             <button
-                              onClick={() => downloadEmployeePayslip(activeEmployee, salaryBreakdown, salaryMonth)}
+                              onClick={() => downloadEmployeePayslip(activeEmployee, salaryBreakdown, salaryMonth, false)}
                               className="btn btn-primary"
                               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.25rem', fontSize: '0.85rem' }}
                             >
@@ -8321,7 +8746,7 @@ const loadReimbursements = async (empId) => {
                               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.25rem', fontSize: '0.85rem', cursor: 'not-allowed', opacity: 0.6 }}
                               title={status.message}
                             >
-                              <Clock size={16} /> Unlocks on 21st
+                              <Clock size={16} /> Locked (Pending HR Finalization)
                             </button>
                           )}
                         </div>
@@ -9510,6 +9935,7 @@ const loadReimbursements = async (empId) => {
           emp={selectedPayslipData.emp}
           breakdown={selectedPayslipData.breakdown}
           monthStr={selectedPayslipData.monthStr}
+          isProvisional={Boolean(selectedPayslipData.isProvisional || (!selectedPayslipData.breakdown?.isFinalized && !payrollSnapshots[selectedPayslipData.emp?.id]))}
         />
       )}
 

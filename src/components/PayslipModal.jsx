@@ -2,7 +2,7 @@ import React from 'react';
 import { X, Printer } from 'lucide-react';
 import PayslipDocument from './PayslipDocument';
 
-export const PayslipModal = ({ isOpen, onClose, emp, breakdown, monthStr }) => {
+export const PayslipModal = ({ isOpen, onClose, emp, breakdown, monthStr, isProvisional = false }) => {
   if (!isOpen || !emp || !breakdown) return null;
 
   const handlePrint = () => {
@@ -41,8 +41,13 @@ export const PayslipModal = ({ isOpen, onClose, emp, breakdown, monthStr }) => {
         zIndex: 10
       }}>
         <div>
-          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#ffffff' }}>
+          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center' }}>
             TOSBS Salary Slip — {emp.full_name || 'Employee'}
+            {isProvisional ? (
+              <span style={{ marginLeft: '10px', backgroundColor: 'rgba(239,68,68,0.2)', color: '#f87171', border: '1px solid rgba(239,68,68,0.4)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 700 }}>PROVISIONAL</span>
+            ) : (
+              <span style={{ marginLeft: '10px', backgroundColor: 'rgba(16,185,129,0.2)', color: '#34d399', border: '1px solid rgba(16,185,129,0.4)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 700 }}>FINALIZED</span>
+            )}
           </h3>
           <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#9ca3af' }}>
             Pay Period: {monthStr} | Code: {emp.short_code || emp.employee_code || emp.id}
@@ -90,7 +95,7 @@ export const PayslipModal = ({ isOpen, onClose, emp, breakdown, monthStr }) => {
         padding: '1.5rem',
         overflowY: 'auto'
       }}>
-        <PayslipDocument emp={emp} breakdown={breakdown} monthStr={monthStr} />
+        <PayslipDocument emp={emp} breakdown={breakdown} monthStr={monthStr} isProvisional={isProvisional} />
       </div>
     </div>
   );

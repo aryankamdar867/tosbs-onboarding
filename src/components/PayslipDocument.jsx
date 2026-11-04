@@ -1,7 +1,7 @@
 import React from 'react';
 import { numberToWordsIndian } from '../utils/numberToWords';
 
-export const PayslipDocument = ({ emp, breakdown, monthStr, id = 'tosbs-payslip-doc' }) => {
+export const PayslipDocument = ({ emp, breakdown, monthStr, isProvisional = false, id = 'tosbs-payslip-doc' }) => {
   if (!emp || !breakdown) return null;
 
   // Format month, e.g. "2026-04" => "April -2026"
@@ -117,8 +117,11 @@ export const PayslipDocument = ({ emp, breakdown, monthStr, id = 'tosbs-payslip-
         </div>
 
         <div style={{ textAlign: 'center', marginTop: '5px' }}>
-          <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#000000' }}>
+          <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#000000', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
             Salary Slip
+            {isProvisional ? (
+              <span style={{ fontSize: '11px', color: '#dc2626', border: '1.5px solid #dc2626', padding: '1px 6px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Provisional</span>
+            ) : null}
           </h2>
         </div>
 
@@ -128,6 +131,12 @@ export const PayslipDocument = ({ emp, breakdown, monthStr, id = 'tosbs-payslip-
           </span>
         </div>
       </div>
+
+      {isProvisional && (
+        <div className="no-print" style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', marginBottom: '14px', textAlign: 'center', fontWeight: 600 }}>
+          ⚠️ PROVISIONAL SALARY SLIP — This is an unfinalized estimate. Official payslips are released after HR finalizes monthly payroll.
+        </div>
+      )}
 
       {/* Company & Employee Details */}
       <div style={{ marginBottom: '20px', fontSize: '13.5px', lineHeight: '1.6' }}>
