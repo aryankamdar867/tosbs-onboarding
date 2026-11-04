@@ -52,11 +52,62 @@ const FESTIVALS = [
   { month: '11', day: '10', name: 'Bhai Dooj', emoji: '🎗️' },
 ];
 
-const getTodaysFestivals = () => {
-  const today = new Date();
-  const mm = String(today.getMonth() + 1).padStart(2, '0');
-  const dd = String(today.getDate()).padStart(2, '0');
+// Threshold constants for attendance hours
+export const HALF_DAY_HOURS = 4;
+export const FULL_DAY_HOURS = 8;
+
+// Shared IST date helper (UTC + 5:30)
+export const istDate = (d = new Date()) =>
+  new Date(d.getTime() + 5.5 * 3600 * 1000).toISOString().split('T')[0];
+
+export const getTodaysFestivals = (d = new Date()) => {
+  const [year, mm, dd] = istDate(d).split('-');
   return FESTIVALS.filter(f => f.month === mm && f.day === dd);
+};
+
+// Paginated Supabase fetch helper
+export const fetchAll = async (build) => {
+  let from = 0, out = [];
+  for (;;) {
+    const { data, error } = await build().range(from, from + 999);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < 1000) break;
+    from += 1000;
+  }
+  return out;
+};
+
+// Shared day classifier for Salary calculation & Attendance Master Sheet export
+// Rules, in this order:
+// - doj exists and dateStr < doj -> 'NA'
+// - if an attendance record exists, check rec.status FIRST (absent->'A', leave->'L', half_day->'HD', holiday->'H', weekly_off->'WO', comp_off->'CO', tour or work_type==='on_tour'->'T', otherwise 'P'). work_type must NEVER override status.
+// - no record: Sunday -> 'WO'; festival -> 'H'; approved leave covers date -> 'L'; dateStr >= todayStr -> '' (not counted); otherwise 'A'
+export const classifyDay = ({ rec, dateStr, dow, isFestival, onLeave, doj, todayStr }) => {
+  // 1. doj exists and dateStr < doj -> 'NA'
+  if (doj && dateStr < doj) return 'NA';
+
+  // 2. if an attendance record exists, check rec.status FIRST
+  if (rec) {
+    const st = (rec.status || '').toLowerCase().trim();
+    const wt = (rec.work_type || '').toLowerCase().trim();
+
+    if (st === 'absent' || st === 'a') return 'A';
+    if (st === 'leave' || st === 'l') return 'L';
+    if (st === 'half_day' || st === 'hd') return 'HD';
+    if (st === 'holiday' || st === 'h') return 'H';
+    if (st === 'weekly_off' || st === 'wo') return 'WO';
+    if (st === 'comp_off' || st === 'co') return 'CO';
+    if (st === 'tour' || st === 'on_tour' || wt === 'on_tour') return 'T';
+    return 'P';
+  }
+
+  // 3. no record:
+  if (dow === 0) return 'WO';
+  if (isFestival) return 'H';
+  if (onLeave) return 'L';
+  if (dateStr >= todayStr) return '';
+  return 'A';
 };
 
 const getAnnouncementDates = (ann) => {
@@ -242,17 +293,17 @@ function App() {
   const attendanceVideoRef = React.useRef(null);
   const attendanceCanvasRef = React.useRef(null);
   const [isMarkingManual, setIsMarkingManual] = useState(false);
-  const [manualAttendance, setManualAttendance] = useState({ employeeId: '', date: new Date().toISOString().split('T')[0], status: 'present', work_type: 'office', note: '' });
-  const [hrAttendanceDate, setHrAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [manualAttendance, setManualAttendance] = useState({ employeeId: '', date: istDate(), status: 'present', work_type: 'office', note: '' });
+  const [hrAttendanceDate, setHrAttendanceDate] = useState(istDate());
   const [hrAttendanceData, setHrAttendanceData] = useState([]);
   const [hrAttendanceEmployee, setHrAttendanceEmployee] = useState('all');
   const [hrAttendanceView, setHrAttendanceView] = useState('daily');
-  const [summaryMonth, setSummaryMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [summaryMonth, setSummaryMonth] = useState(istDate().slice(0, 7));
   const [summaryData, setSummaryData] = useState([]);
 
   // Leave state
     const [leaveApplications, setLeaveApplications] = useState([]);
-  const [salaryMonth, setSalaryMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [salaryMonth, setSalaryMonth] = useState(istDate().slice(0, 7));
   const [salaryConfig, setSalaryConfig] = useState({ monthly_ctc: 0, overtime_multiplier: 1.5 });
   const [salaryBreakdown, setSalaryBreakdown] = useState(null);
   const [hrSalaryEmployee, setHrSalaryEmployee] = useState('');
@@ -265,7 +316,7 @@ function App() {
   const [reimbursements, setReimbursements] = useState([]);
   const [hrReimbursements, setHrReimbursements] = useState([]);
   const [reimbForm, setReimbForm] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: istDate(),
     client_name: '',
     work_description: '',
     start_time: '',
@@ -1069,8 +1120,8 @@ function App() {
 
   const loadTodayAttendance = async (empId) => {
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const { data } = await supabase.from('attendance').select('*').eq('employee_id', empId).eq('date', today).single();
+      const today = istDate();
+      const { data } = await supabase.from('attendance').select('*').eq('employee_id', empId).eq('date', today).maybeSingle();
       setTodayAttendance(data || null);
     } catch { setTodayAttendance(null); }
   };
@@ -1104,16 +1155,24 @@ function App() {
   const handleManualAttendance = async () => {
     if (!manualAttendance.employeeId) { alert('Please select an employee.'); return; }
     try {
-      const existing = await supabase.from('attendance').select('id').eq('employee_id', manualAttendance.employeeId).eq('date', manualAttendance.date).single();
-      if (existing.data) {
-        await supabase.from('attendance').update({ status: manualAttendance.status, work_type: manualAttendance.work_type, wfh_reason: manualAttendance.note }).eq('id', existing.data.id);
-      } else {
-        await supabase.from('attendance').insert({
-          employee_id: manualAttendance.employeeId, date: manualAttendance.date, status: manualAttendance.status,
-          work_type: manualAttendance.work_type, wfh_reason: manualAttendance.note,
-          check_in_time: manualAttendance.status !== 'absent' ? `${manualAttendance.date}T09:00:00Z` : null,
-        });
-      }
+      const isPresent = manualAttendance.status === 'present';
+      const workType = isPresent 
+        ? (manualAttendance.work_type || 'office') 
+        : (manualAttendance.status === 'leave' ? 'leave' : null);
+      const checkInTime = isPresent ? `${manualAttendance.date}T03:30:00Z` : null;
+
+      const { error } = await supabase
+        .from('attendance')
+        .upsert({
+          employee_id: manualAttendance.employeeId,
+          date: manualAttendance.date,
+          status: manualAttendance.status,
+          work_type: workType,
+          wfh_reason: manualAttendance.note || null,
+          check_in_time: checkInTime,
+        }, { onConflict: 'employee_id,date' });
+
+      if (error) throw error;
       alert('Attendance updated successfully.');
       setIsMarkingManual(false);
       loadHrAttendance();
@@ -1148,7 +1207,7 @@ function App() {
 
       const dist = Math.round(haversineDistance({ lat: OFFICE_LAT, lng: OFFICE_LNG }, { lat, lng }));
       const now = new Date().toISOString();
-      const today = new Date().toISOString().split('T')[0];
+      const today = istDate();
 
       if (isNaN(dist)) {
         throw new Error('Could not calculate distance to office.');
@@ -1165,37 +1224,25 @@ function App() {
       const pendingData = forceWfh ? wfhPendingData : { lat, lng, dist, now, today, type };
 
       if (pendingData.type === 'in') {
-        let resultData;
-        if (todayAttendance?.id) {
-          const { data, error } = await supabase.from('attendance').update({
-            check_in_time: pendingData.now,
-            check_in_photo: attendancePhoto,
-            check_in_lat: pendingData.lat,
-            check_in_lng: pendingData.lng,
-            check_in_distance_m: pendingData.dist,
-            status: 'present',
-            work_type: workType,
-            wfh_reason: pendingData.reason || null,
-          }).eq('id', todayAttendance.id).select().single();
-          if (error) throw error;
-          resultData = data;
-        } else {
-          const { data, error } = await supabase.from('attendance').insert({
-            employee_id: activeEmployee.id,
-            date: pendingData.today,
-            check_in_time: pendingData.now,
-            check_in_photo: attendancePhoto,
-            check_in_lat: pendingData.lat,
-            check_in_lng: pendingData.lng,
-            check_in_distance_m: pendingData.dist,
-            status: 'present',
-            work_type: workType,
-            wfh_reason: pendingData.reason || null,
-          }).select().single();
-          if (error) throw error;
-          resultData = data;
-        }
-        setTodayAttendance(resultData);
+        const checkInPayload = {
+          employee_id: activeEmployee.id,
+          date: pendingData.today,
+          check_in_time: pendingData.now,
+          check_in_photo: attendancePhoto,
+          check_in_lat: pendingData.lat,
+          check_in_lng: pendingData.lng,
+          check_in_distance_m: pendingData.dist,
+          status: 'present',
+          work_type: workType,
+          wfh_reason: pendingData.reason || null,
+        };
+        const { data, error } = await supabase
+          .from('attendance')
+          .upsert(checkInPayload, { onConflict: 'employee_id,date' })
+          .select()
+          .single();
+        if (error) throw error;
+        setTodayAttendance(data);
 
         if (forceWfh) {
           try {
@@ -1230,16 +1277,33 @@ function App() {
           return;
         }
 
-        const workHours = parseFloat(((new Date(pendingData.now) - new Date(todayAttendance.check_in_time)) / (1000 * 60 * 60)).toFixed(2));
-        const { data, error } = await supabase.from('attendance').update({
+        const checkInTime = todayAttendance?.check_in_time || pendingData.now;
+        const workHours = parseFloat(((new Date(pendingData.now) - new Date(checkInTime)) / (1000 * 60 * 60)).toFixed(2));
+        const checkoutStatus = workHours < HALF_DAY_HOURS ? 'half_day' : 'present';
+
+        const checkOutPayload = {
+          employee_id: activeEmployee.id,
+          date: pendingData.today,
+          ...(todayAttendance?.check_in_time ? { check_in_time: todayAttendance.check_in_time } : {}),
+          ...(todayAttendance?.check_in_photo ? { check_in_photo: todayAttendance.check_in_photo } : {}),
+          ...(todayAttendance?.check_in_lat ? { check_in_lat: todayAttendance.check_in_lat } : {}),
+          ...(todayAttendance?.check_in_lng ? { check_in_lng: todayAttendance.check_in_lng } : {}),
+          ...(todayAttendance?.check_in_distance_m ? { check_in_distance_m: todayAttendance.check_in_distance_m } : {}),
           check_out_time: pendingData.now,
           check_out_photo: attendancePhoto,
           check_out_lat: pendingData.lat,
           check_out_lng: pendingData.lng,
           check_out_distance_m: pendingData.dist,
           work_hours: workHours,
-          work_type: forceWfh ? 'wfh' : todayAttendance.work_type,
-        }).eq('id', todayAttendance.id).select().single();
+          work_type: forceWfh ? 'wfh' : (todayAttendance?.work_type || 'office'),
+          status: checkoutStatus,
+        };
+
+        const { data, error } = await supabase
+          .from('attendance')
+          .upsert(checkOutPayload, { onConflict: 'employee_id,date' })
+          .select()
+          .single();
         if (error) throw error;
         setTodayAttendance(data);
       }
@@ -1304,7 +1368,7 @@ function App() {
     setAnnouncementSubmitting(true);
     setAnnouncementSuccessMsg('');
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = istDate();
       const startDate = announcementForm.start_date || announcementForm.scheduled_date || today;
       const endDate = announcementForm.end_date || null;
 
@@ -1387,6 +1451,9 @@ function App() {
 
       const { data: empProfile } = await supabase.from('profiles').select('id, full_name, position').eq('id', employeeId).maybeSingle();
 
+      const { data: empDetails } = await supabase.from('employee_details').select('date_of_joining').eq('employee_id', employeeId).maybeSingle();
+      const doj = empDetails?.date_of_joining || null;
+
       const { data: offerDoc } = await supabase
         .from('employee_documents')
         .select('*')
@@ -1442,7 +1509,7 @@ function App() {
         .gte('to_date', startDate);
       const approvedLeaves = leaveRows || [];
 
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = istDate();
 
       // Count working days in month (Mon-Sat, excluding Sundays)
       let workingDaysInMonth = 0;
@@ -1460,59 +1527,55 @@ function App() {
       let onTourDays = 0;
       let sundayWorkedDays = 0;
       let compOffUsed = 0;
+      let naDays = 0;
 
-      // Loop every calendar day to capture both recorded AND missing days
+      // Loop every calendar day and classify via shared classifyDay
       for (let d = 1; d <= daysInMonth; d++) {
         const dateStr = `${year}-${month}-${String(d).padStart(2, '0')}`;
-        const dayOfWeek = new Date(parseInt(year), parseInt(month) - 1, d).getDay();
-
-        // Skip Sundays
-        if (dayOfWeek === 0) {
-          const rec = dateMap[dateStr];
-          if (rec && rec.status === 'present') sundayWorkedDays++;
-          continue;
-        }
-
-        // Skip future dates (don't mark upcoming days as absent)
-        if (dateStr > todayStr) continue;
-
+        const dow = new Date(parseInt(year), parseInt(month) - 1, d).getDay();
         const isFestival = FESTIVALS.some(f => f.month === month && f.day === String(d).padStart(2, '0'));
-        const isOnLeave = approvedLeaves.some(l => dateStr >= l.from_date && dateStr <= l.to_date);
+        const onLeave = approvedLeaves.some(l => dateStr >= l.from_date && dateStr <= l.to_date);
         const rec = dateMap[dateStr];
 
-        if (rec) {
-          // Has an attendance record — classify it
-          if (rec.status === 'present' || rec.work_type === 'wfh' || rec.work_type === 'on_tour') presentDays++;
-          else if (rec.status === 'absent') absentDays++;
-          else if (rec.status === 'half_day') halfDays++;
-          else if (rec.status === 'leave') leaveDays++;
-          else if (rec.status === 'holiday') holidayDays++;
-          else if (rec.status === 'weekly_off') weeklyOffDays++;
-          else if (rec.status === 'comp_off') compOffUsed++;
-          else if (rec.status === 'tour') onTourDays++;
-          else presentDays++;
-        } else if (isOnLeave) {
-          // Approved leave application covers this day
-          leaveDays++;
-        } else if (isFestival) {
-          // Public holiday — not absent
-          holidayDays++;
-        } else {
-          // No explicit absent record, not a holiday, not on leave → active working day defaults to Present
+        // Sunday worked tracking
+        if (dow === 0 && rec && (rec.status === 'present' || rec.status === 'p')) {
+          sundayWorkedDays++;
+        }
+
+        const code = classifyDay({ rec, dateStr, dow, isFestival, onLeave, doj, todayStr });
+
+        if (code === 'NA') {
+          naDays++;
+        } else if (code === 'P') {
           presentDays++;
+        } else if (code === 'A') {
+          absentDays++;
+        } else if (code === 'HD') {
+          halfDays++;
+        } else if (code === 'L') {
+          leaveDays++;
+        } else if (code === 'H') {
+          holidayDays++;
+        } else if (code === 'T') {
+          onTourDays++;
+          presentDays++;
+        } else if (code === 'WO') {
+          weeklyOffDays++;
+        } else if (code === 'CO') {
+          compOffUsed++;
         }
       }
 
       const leavesAllowed = 1.0;
       const leavesTaken = absentDays + leaveDays + (halfDays * 0.5);
       const excessLeaves = Math.max(0, leavesTaken - leavesAllowed);
-      const extraDaysWorked = 0;
-      const netPayDays = Math.max(0, daysInMonth - excessLeaves + extraDaysWorked);
+      const eligibleDays = Math.max(0, daysInMonth - naDays);
+      const netPayDays = Math.max(0, eligibleDays - excessLeaves);
       const payableDays = parseFloat(netPayDays.toFixed(2));
 
       const perDayRate = daysInMonth > 0 ? monthlyCtc / daysInMonth : 0;
       const grossEarned = Math.round(perDayRate * netPayDays);
-      const leaveDeduction = Math.round(excessLeaves * perDayRate);
+      const leaveDeduction = Math.round((daysInMonth - netPayDays) * perDayRate);
 
       let tds = 0;
       if (includeTds) {
@@ -1536,7 +1599,9 @@ function App() {
         netPayDays: parseFloat(netPayDays.toFixed(2)),
         payableDays,
         extraDaysWorked,
-        billableAbsents: parseFloat(excessLeaves.toFixed(1)),
+        eligibleDays,
+        naDays,
+        billableAbsents: parseFloat((naDays + excessLeaves).toFixed(1)),
         freeLeaveAllowance: leavesAllowed,
         halfDays,
         leaveDays,
@@ -1844,7 +1909,7 @@ function App() {
         const start = new Date(leave.from_date);
         const end = new Date(leave.to_date);
         const dates = [];
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) dates.push(new Date(d).toISOString().split('T')[0]);
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) dates.push(istDate(d));
 
         for (const date of dates) {
           const { data: existing } = await supabase.from('attendance').select('id').eq('employee_id', leave.employee_id).eq('date', date).single();
@@ -1926,7 +1991,7 @@ function App() {
   const loadCelebrationsAndNotifications = async (empId) => {
     try {
       const today = new Date();
-      const todayISO = today.toISOString().split('T')[0];
+      const todayISO = istDate();
 
       try {
         const { data: rpcData } = await supabase.rpc('get_todays_celebrations');
@@ -1988,7 +2053,7 @@ function App() {
 
   const sendWish = async (toEmployeeId, occasionType) => {
     try {
-      const todayISO = new Date().toISOString().split('T')[0];
+      const todayISO = istDate();
       const message = occasionType === 'birthday' ? '🎉 Happy Birthday! Wishing you a fantastic year ahead!' : '🎊 Happy Work Anniversary! Congrats on another great year!';
       const { error } = await supabase.from('wishes').insert({
         to_employee_id: toEmployeeId, from_employee_id: activeEmployee.id, occasion_type: occasionType, occasion_date: todayISO, message,
@@ -2085,7 +2150,7 @@ const loadReimbursements = async (empId) => {
         });
       } catch (e) { console.error('Reimb email failed:', e); }
 
-      setReimbForm({ date: new Date().toISOString().split('T')[0], client_name: '', work_description: '', start_time: '', end_time: '', expenses: [{ category: 'Travel', description: '', amount: '' }], receipt_url: '' });
+      setReimbForm({ date: istDate(), client_name: '', work_description: '', start_time: '', end_time: '', expenses: [{ category: 'Travel', description: '', amount: '' }], receipt_url: '' });
       setReimbReceiptFile(null);
       loadReimbursements(activeEmployee.id);
       alert('Reimbursement request submitted! HR will review it shortly.');
@@ -2102,7 +2167,7 @@ const loadReimbursements = async (empId) => {
         status: verdict,
         hr_note: hrNote,
         reviewed_at: new Date().toISOString(),
-        paid_date: verdict === 'approved' ? new Date().toISOString().split('T')[0] : null,
+        paid_date: verdict === 'approved' ? istDate() : null,
       }).eq('id', reimb.id);
       loadHrReimbursements();
       alert(`Reimbursement ${verdict} successfully.`);
@@ -2131,7 +2196,7 @@ const loadReimbursements = async (empId) => {
       ws['!cols'] = [{ wch: 22 }, { wch: 28 }, { wch: 22 }, { wch: 12 }, { wch: 22 }, { wch: 35 }, { wch: 12 }, { wch: 12 }, { wch: 50 }, { wch: 16 }, { wch: 12 }, { wch: 25 }, { wch: 14 }, { wch: 18 }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Reimbursements');
-      XLSX.writeFile(wb, `TOSBS_Reimbursements_${new Date().toISOString().split('T')[0]}.xlsx`);
+      XLSX.writeFile(wb, `TOSBS_Reimbursements_${istDate()}.xlsx`);
     } catch (err) { console.error(err); alert('Export failed.'); }
   };
 
@@ -2153,13 +2218,13 @@ const loadReimbursements = async (empId) => {
       }
 
       if (data) {
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = istDate();
         // Check 5-day auto-deactivation
         if ((data.status === 'notice_period' || data.status === 'approved') && data.notice_end_date) {
           const endD = new Date(data.notice_end_date);
           const autoDeactD = new Date(endD);
           autoDeactD.setDate(autoDeactD.getDate() + 5);
-          const autoDeactStr = autoDeactD.toISOString().split('T')[0];
+          const autoDeactStr = istDate(autoDeactD);
 
           if (todayStr >= autoDeactStr) {
             await supabase.from('resignations').update({ status: 'deactivated', deactivated_at: new Date().toISOString() }).eq('id', data.id);
@@ -2193,7 +2258,7 @@ const loadReimbursements = async (empId) => {
         return;
       }
 
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = istDate();
       const updatedList = [];
 
       for (const r of (data || [])) {
@@ -2202,7 +2267,7 @@ const loadReimbursements = async (empId) => {
           const endD = new Date(r.notice_end_date);
           const autoDeactD = new Date(endD);
           autoDeactD.setDate(autoDeactD.getDate() + 5);
-          const autoDeactStr = autoDeactD.toISOString().split('T')[0];
+          const autoDeactStr = istDate(autoDeactD);
 
           if (todayStr >= autoDeactStr) {
             await supabase.from('resignations').update({ status: 'deactivated', deactivated_at: new Date().toISOString() }).eq('id', r.id);
@@ -2264,11 +2329,11 @@ const loadReimbursements = async (empId) => {
 
   const handleApproveResignation = async (resignationId, employeeId, noticeDays, startDate, hrNote = '') => {
     const days = (noticeDays !== undefined && noticeDays !== null && noticeDays !== '' && !isNaN(parseInt(noticeDays))) ? parseInt(noticeDays) : 30;
-    const start = startDate || new Date().toISOString().split('T')[0];
+    const start = startDate || istDate();
     const startD = new Date(start);
     const endD = new Date(startD);
     endD.setDate(endD.getDate() + days);
-    const endDate = endD.toISOString().split('T')[0];
+    const endDate = istDate(endD);
 
     try {
       const { error } = await supabase.from('resignations').update({
@@ -2389,7 +2454,7 @@ const loadReimbursements = async (empId) => {
       ws['!cols'] = [{ wch: 22 }, { wch: 28 }, { wch: 22 }, { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 25 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Resignations');
-      XLSX.writeFile(wb, `TOSBS_Resignations_${new Date().toISOString().split('T')[0]}.xlsx`);
+      XLSX.writeFile(wb, `TOSBS_Resignations_${istDate()}.xlsx`);
     } catch (err) { console.error(err); alert('Export failed.'); }
   };
   
@@ -2792,7 +2857,7 @@ const loadReimbursements = async (empId) => {
         reportingManager: 'Amar Talwar',
         probationPeriod: '3 months',
         includeTds: false,
-        joiningDate: details?.date_of_joining || new Date().toISOString().split('T')[0],
+        joiningDate: details?.date_of_joining || istDate(),
         employmentType: 'Full-Time',
         annualCtc: ctc,
         signatoryName: 'Amar Talwar',
@@ -2838,6 +2903,21 @@ const loadReimbursements = async (empId) => {
           });
         if (error) throw error;
       }
+
+      // Single source of truth for CTC: upsert salary_config with monthly_ctc = annualCtc / 12
+      const annualCtc = Number(savedData?.annualCtc) || (Number(savedData?.monthlyCtc) ? Number(savedData.monthlyCtc) * 12 : 0);
+      if (annualCtc > 0) {
+        const monthlyCtc = Math.round(annualCtc / 12);
+        await supabase
+          .from('salary_config')
+          .upsert({
+            employee_id: selectedOfferLetterEmployee.id,
+            monthly_ctc: monthlyCtc,
+            tds_enabled: savedData?.includeTds !== undefined ? Boolean(savedData.includeTds) : false,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'employee_id' });
+      }
+
       await loadAllOfferLetters();
     } catch (err) {
       console.error('Error saving offer letter:', err);
@@ -3094,7 +3174,7 @@ const loadReimbursements = async (empId) => {
       try {
         const empName = activeEmployee.full_name || 'A new colleague';
         const empPos = activeEmployee.position ? ` as ${activeEmployee.position}` : '';
-        const todayISO = new Date().toISOString().split('T')[0];
+        const todayISO = istDate();
         await supabase.from('notifications').insert({
           employee_id: null,
           title: `🎉 Welcome ${empName} to TOSBS!`,
@@ -3198,7 +3278,7 @@ const loadReimbursements = async (empId) => {
 
       const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
       const blob = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8" });
-      saveAs(blob, `Employee_Master_Sheet_${new Date().toISOString().split("T")[0]}.xlsx`);
+      saveAs(blob, `Employee_Master_Sheet_${istDate()}.xlsx`);
     } catch (err) { console.error(err); alert("Unable to export Excel sheet."); }
   };
   const exportAttendanceMasterSheet = async () => {
@@ -3232,30 +3312,33 @@ const loadReimbursements = async (empId) => {
         .select('employee_id, date_of_joining');
       const dojMap = Object.fromEntries((details || []).map(d => [d.employee_id, d.date_of_joining]));
 
-      const { data: leaves } = await supabase
-        .from('leave_applications')
-        .select('*')
-        .eq('status', 'approved');
+      const leaves = await fetchAll(() =>
+        supabase
+          .from('leave_applications')
+          .select('*')
+          .eq('status', 'approved')
+      );
 
-      // Fetch all attendance records once (fast & avoids unindexed Postgres gte/lte timeouts)
-      const { data: allAttendance, error: attErr } = await supabase
-        .from('attendance')
-        .select('employee_id, date, status, work_type')
-        .limit(50000);
-
-      if (attErr) console.error('Error fetching attendance records:', attErr);
+      // Paginated attendance fetching (>= 2026-08-01, ordered by date)
+      const allAttendance = await fetchAll(() =>
+        supabase
+          .from('attendance')
+          .select('employee_id, date, status, work_type')
+          .gte('date', '2026-08-01')
+          .order('date', { ascending: true })
+      );
 
       const workbook = XLSX.utils.book_new();
-      const today = new Date();
-      const todayStr = today.toISOString().split('T')[0];
+      const todayStr = istDate();
       const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THUR', 'FRI', 'SAT'];
       const monthNamesShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
       // Start exporting from August 2026 (2026-08) up to current month
       const startYear = 2026;
       const startMonth = 8;
-      const currentYear = today.getFullYear();
-      const currentMonth = today.getMonth() + 1;
+      const [curYearStr, curMonthStr] = todayStr.split('-');
+      const currentYear = parseInt(curYearStr);
+      const currentMonth = parseInt(curMonthStr);
 
       const monthsToExport = [];
       let y = startYear;
@@ -3305,53 +3388,31 @@ const loadReimbursements = async (empId) => {
 
         validEmployees.forEach((emp, idx) => {
           const row = [idx + 1, (emp.full_name || 'EMPLOYEE').trim().toUpperCase()];
-          const rawDoj = dojMap[emp.id] || null;
-          // Legacy/pre-existing employees should not be marked NA for active months
-          const isPreExisting = emp.id?.startsWith('a1000001-') || (emp.created_at && new Date(emp.created_at) <= new Date(`${year}-${monthStr}-31`));
-          const doj = isPreExisting ? null : rawDoj;
+          const doj = dojMap[emp.id] || null;
 
           for (let d = 1; d <= daysInMonth; d++) {
             const dateStr = `${year}-${monthStr}-${String(d).padStart(2, '0')}`;
-            const dayOfWeek = new Date(year, month - 1, d).getDay();
+            const dow = new Date(year, month - 1, d).getDay();
             const rec = attMap[`${emp.id}_${dateStr}`];
-            const isFest = FESTIVALS.some(f => f.month === monthStr && f.day === String(d).padStart(2, '0'));
-            const hasLeave = (leaves || []).some(l => l.employee_id === emp.id && dateStr >= l.from_date && dateStr <= l.to_date);
+            const isFestival = FESTIVALS.some(f => f.month === monthStr && f.day === String(d).padStart(2, '0'));
+            const onLeave = (leaves || []).some(l => l.employee_id === emp.id && dateStr >= l.from_date && dateStr <= l.to_date);
 
-            if (rec) {
-              // Actual database attendance record ALWAYS takes highest priority
-              const st = (rec.status || '').toLowerCase();
-              const wt = (rec.work_type || '').toLowerCase();
+            const code = classifyDay({ rec, dateStr, dow, isFestival, onLeave, doj, todayStr });
 
-              if (st === 'absent') {
-                row.push('A');
-              } else if (st === 'present' || st === 'p' || wt === 'office' || wt === 'wfh') {
-                row.push('P');
-              } else if (wt === 'on_tour' || st === 'tour') {
-                row.push('Tour');
-              } else if (st === 'half_day' || st === 'hd') {
-                row.push('HD');
-              } else if (st === 'leave' || wt === 'leave') {
-                row.push('Leave');
-              } else if (st === 'holiday' || st === 'h') {
-                row.push('H');
-              } else {
-                row.push('P');
-              }
-            } else if (hasLeave) {
-              row.push('Leave');
-            } else if (isFest) {
-              row.push('H');
-            } else if (dayOfWeek === 0) {
-              // Sunday
-              row.push('');
-            } else if (doj && dateStr < doj) {
-              // Before official Date of Joining for future onboarding candidates
-              row.push('NA');
-            } else if (dateStr <= todayStr) {
-              row.push('A');
-            } else {
-              row.push('');
-            }
+            const cellMap = {
+              'P': 'P',
+              'A': 'A',
+              'L': 'Leave',
+              'HD': 'HD',
+              'H': 'H',
+              'WO': '',
+              'CO': 'Leave',
+              'T': 'Tour',
+              'NA': 'NA',
+              '': ''
+            };
+
+            row.push(cellMap[code] ?? '');
           }
           sheetRows.push(row);
         });
@@ -4187,19 +4248,18 @@ const loadReimbursements = async (empId) => {
                       <div><p style={detailLabelStyle}>Working Days</p><p style={detailValueStyle}>{salaryBreakdown.workingDaysInMonth}</p></div>
                       <div><p style={detailLabelStyle}>Present Days</p><p style={detailValueStyle}>{salaryBreakdown.presentDays}</p></div>
                       <div><p style={detailLabelStyle}>Total Absents</p><p style={{ ...detailValueStyle, color: 'var(--color-danger)' }}>{salaryBreakdown.absentDays}</p></div>
-                      <div><p style={detailLabelStyle}>Free Leave (1.5d)</p><p style={{ ...detailValueStyle, color: 'var(--color-success)' }}>{salaryBreakdown.freeLeaveAllowance}</p></div>
+                      <div><p style={detailLabelStyle}>Free Leave ({salaryBreakdown.freeLeaveAllowance}d)</p><p style={{ ...detailValueStyle, color: 'var(--color-success)' }}>{salaryBreakdown.freeLeaveAllowance}</p></div>
                       <div><p style={detailLabelStyle}>Billable Absents</p><p style={{ ...detailValueStyle, color: 'var(--color-danger)' }}>{salaryBreakdown.billableAbsents}</p></div>
                       <div><p style={detailLabelStyle}>Half Days</p><p style={{ ...detailValueStyle, color: 'var(--color-pending)' }}>{salaryBreakdown.halfDays}</p></div>
-                      <div><p style={detailLabelStyle}>Sandwich Penalty</p><p style={{ ...detailValueStyle, color: 'var(--color-danger)' }}>{salaryBreakdown.sandwichPenaltyDays} day(s)</p></div>
                       <div><p style={detailLabelStyle}>Leave Days</p><p style={detailValueStyle}>{salaryBreakdown.leaveDays}</p></div>
                       <div><p style={detailLabelStyle}>Holidays</p><p style={detailValueStyle}>{salaryBreakdown.holidayDays}</p></div>
-                      <div><p style={detailLabelStyle}>Sunday Worked</p><p style={{ ...detailValueStyle, color: 'var(--color-success)' }}>{salaryBreakdown.sundayWorkedDays} (comp-off earned)</p></div>
+                      <div><p style={detailLabelStyle}>Sunday Worked</p><p style={{ ...detailValueStyle, color: 'var(--color-success)' }}>{salaryBreakdown.sundayWorkedDays}</p></div>
                     </div>
                     <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem' }}>Monthly CTC</span><span style={{ fontSize: '0.9rem' }}>₹{salaryBreakdown.monthlyCtc.toLocaleString('en-IN')}</span></div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− Absence Deduction ({salaryBreakdown.billableAbsents} days)</span><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.deduction.toLocaleString('en-IN')}</span></div>
-                      {salaryBreakdown.sandwichPenaltyDays > 0 && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.85rem', color: 'var(--color-danger)' }}>− Sandwich Rule ({salaryBreakdown.sandwichPenaltyDays} extra day)</span><span style={{ fontSize: '0.85rem', color: 'var(--color-danger)' }}>included above</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− Absence Deduction ({salaryBreakdown.billableAbsents} days)</span><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.leaveDeduction.toLocaleString('en-IN')}</span></div>
+                      {salaryBreakdown.includeTds && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− TDS</span><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.tds.toLocaleString('en-IN')}</span></div>
                       )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '2px solid var(--color-orange)', paddingTop: '0.75rem', marginTop: '0.25rem' }}>
                         <span style={{ fontSize: '1rem', fontWeight: 800 }}>Net Salary</span>
@@ -4208,7 +4268,7 @@ const loadReimbursements = async (empId) => {
                     </div>
                     {salaryBreakdown.sundayWorkedDays > 0 && (
                       <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.2)', fontSize: '0.85rem', color: 'var(--color-success)' }}>
-                        ℹ️ {salaryBreakdown.sundayWorkedDays} Sunday(s) worked this month. Compensatory off to be approved by HR separately.
+                        ℹ️ {salaryBreakdown.sundayWorkedDays} Sunday(s) worked this month.
                       </div>
                     )}
                     <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end' }}>
@@ -4370,8 +4430,8 @@ const loadReimbursements = async (empId) => {
                 <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
                   {[
                     { label: 'Pending Requests', val: hrResignations.filter(r => r.status === 'pending').length, color: 'var(--color-pending)', icon: <Clock size={20} color="var(--color-pending)" /> },
-                    { label: 'Serving Notice', val: hrResignations.filter(r => (r.status === 'notice_period' || r.status === 'approved') && (!r.notice_end_date || r.notice_end_date >= new Date().toISOString().split('T')[0])).length, color: 'var(--color-orange)', icon: <CalendarDays size={20} color="var(--color-orange)" /> },
-                    { label: 'Notice Over (5d Grace)', val: hrResignations.filter(r => (r.status === 'notice_period' || r.status === 'approved') && r.notice_end_date && r.notice_end_date < new Date().toISOString().split('T')[0]).length, color: '#f59e0b', icon: <AlertCircle size={20} color="#f59e0b)" /> },
+                    { label: 'Serving Notice', val: hrResignations.filter(r => (r.status === 'notice_period' || r.status === 'approved') && (!r.notice_end_date || r.notice_end_date >= istDate())).length, color: 'var(--color-orange)', icon: <CalendarDays size={20} color="var(--color-orange)" /> },
+                    { label: 'Notice Over (5d Grace)', val: hrResignations.filter(r => (r.status === 'notice_period' || r.status === 'approved') && r.notice_end_date && r.notice_end_date < istDate()).length, color: '#f59e0b', icon: <AlertCircle size={20} color="#f59e0b)" /> },
                     { label: 'Deactivated Accounts', val: hrResignations.filter(r => r.status === 'deactivated').length, color: 'var(--color-text-muted)', icon: <UserMinus size={20} color="var(--color-text-muted)" /> },
                   ].map((s, i) => (
                     <div key={i} className="glass-card" style={{ padding: '1.25rem' }}>
@@ -4412,7 +4472,7 @@ const loadReimbursements = async (empId) => {
                 {/* Resignation Cards */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   {(() => {
-                    const todayStr = new Date().toISOString().split('T')[0];
+                    const todayStr = istDate();
                     const filtered = hrResignations.filter(r => {
                       if (hrResignFilter === 'pending') return r.status === 'pending';
                       if (hrResignFilter === 'notice_period') return (r.status === 'notice_period' || r.status === 'approved') && (!r.notice_end_date || r.notice_end_date >= todayStr);
@@ -4677,7 +4737,7 @@ const loadReimbursements = async (empId) => {
                                 const sDate = new Date(currentAction.notice_start_date || todayStr);
                                 const eDate = new Date(sDate);
                                 eDate.setDate(eDate.getDate() + nDays);
-                                const lastDayStr = eDate.toISOString().split('T')[0];
+                                const lastDayStr = istDate(eDate);
                                 return (
                                   <div style={{ marginBottom: '0.75rem', padding: '0.5rem 0.75rem', backgroundColor: nDays === 0 ? 'rgba(239,68,68,0.08)' : 'rgba(59,130,246,0.06)', borderRadius: '6px', fontSize: '0.78rem', color: nDays === 0 ? '#b91c1c' : '#1e40af', border: nDays === 0 ? '1px solid rgba(239,68,68,0.2)' : 'none' }}>
                                     📅 <strong>{nDays === 0 ? '⚡ Immediate Exit (0 Days Notice):' : 'Calculated Last Working Day:'}</strong> {lastDayStr} {nDays === 0 ? '(Last Day Today)' : ''} (Account will auto-deactivate 5 days later)
@@ -6689,7 +6749,7 @@ const loadReimbursements = async (empId) => {
             {/* ANNOUNCEMENTS TAB */}
             {hrActiveTab === 'announcements' && (() => {
               const annList = notifications.filter(n => n.is_announcement);
-              const todayStr = new Date().toISOString().split('T')[0];
+              const todayStr = istDate();
 
               const processedList = annList.map(ann => {
                 const { startDate, endDate, cleanMessage } = getAnnouncementDates(ann);
@@ -7753,7 +7813,7 @@ const loadReimbursements = async (empId) => {
                             .filter(n => {
                               if (!n.is_announcement) return true;
                               const { startDate, endDate } = getAnnouncementDates(n);
-                              const todayStr = new Date().toISOString().split('T')[0];
+                              const todayStr = istDate();
                               if (startDate && startDate > todayStr) return false;
                               if (endDate && endDate < todayStr) return false;
                               return true;
@@ -7846,7 +7906,7 @@ const loadReimbursements = async (empId) => {
                         .filter(n => {
                           if (!n.is_announcement) return false;
                           const { startDate, endDate } = getAnnouncementDates(n);
-                          const todayStr = new Date().toISOString().split('T')[0];
+                          const todayStr = istDate();
                           if (startDate && startDate > todayStr) return false;
                           if (endDate && endDate < todayStr) return false;
                           return true;
@@ -8168,8 +8228,8 @@ const loadReimbursements = async (empId) => {
                         <option value="CL">Casual Leave (CL)</option><option value="SL">Sick Leave (SL)</option><option value="EL">Earned Leave (EL)</option>
                       </select>
                     </div>
-                    <div className="form-group"><label className="form-label">From Date</label><input type="date" className="form-input" value={leaveForm.from_date} onChange={(e) => setLeaveForm({ ...leaveForm, from_date: e.target.value })} min={new Date().toISOString().split('T')[0]} /></div>
-                    <div className="form-group"><label className="form-label">To Date</label><input type="date" className="form-input" value={leaveForm.to_date} onChange={(e) => setLeaveForm({ ...leaveForm, to_date: e.target.value })} min={leaveForm.from_date || new Date().toISOString().split('T')[0]} /></div>
+                    <div className="form-group"><label className="form-label">From Date</label><input type="date" className="form-input" value={leaveForm.from_date} onChange={(e) => setLeaveForm({ ...leaveForm, from_date: e.target.value })} min={istDate()} /></div>
+                    <div className="form-group"><label className="form-label">To Date</label><input type="date" className="form-input" value={leaveForm.to_date} onChange={(e) => setLeaveForm({ ...leaveForm, to_date: e.target.value })} min={leaveForm.from_date || istDate()} /></div>
                   </div>
                   <div className="form-group"><label className="form-label">Reason</label><textarea className="form-input" placeholder="Describe your reason for leave..." value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} style={{ minHeight: '80px', resize: 'vertical' }} /></div>
                   {leaveFormError && <p style={{ color: 'var(--color-danger)', fontSize: '0.82rem', marginBottom: '0.75rem' }}>{leaveFormError}</p>}
@@ -8213,16 +8273,19 @@ const loadReimbursements = async (empId) => {
                     <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
                       My Salary — {new Date(salaryMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
                     </h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                       <div><p style={detailLabelStyle}>Present Days</p><p style={detailValueStyle}>{salaryBreakdown.presentDays}</p></div>
-                      <div><p style={detailLabelStyle}>Paid Leave / Holiday Days</p><p style={detailValueStyle}>{salaryBreakdown.leaveDays}</p></div>
                       <div><p style={detailLabelStyle}>Absent Days</p><p style={{ ...detailValueStyle, color: 'var(--color-danger)' }}>{salaryBreakdown.absentDays}</p></div>
-                      <div><p style={detailLabelStyle}>Overtime Hours</p><p style={detailValueStyle}>{salaryBreakdown.overtimeHours}h</p></div>
+                      <div><p style={detailLabelStyle}>Half Days</p><p style={{ ...detailValueStyle, color: 'var(--color-pending)' }}>{salaryBreakdown.halfDays}</p></div>
+                      <div><p style={detailLabelStyle}>Leave Days</p><p style={detailValueStyle}>{salaryBreakdown.leaveDays}</p></div>
+                      <div><p style={detailLabelStyle}>Holidays</p><p style={detailValueStyle}>{salaryBreakdown.holidayDays}</p></div>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', padding: '1.25rem', backgroundColor: 'rgba(0,0,0,0.02)', borderRadius: '10px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem' }}>Monthly CTC</span><span style={{ fontSize: '0.9rem' }}>₹{salaryBreakdown.monthlyCtc.toLocaleString('en-IN')}</span></div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− Deductions</span><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.deduction.toLocaleString('en-IN')}</span></div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem', color: 'var(--color-success)' }}>+ Overtime Pay</span><span style={{ fontSize: '0.9rem', color: 'var(--color-success)' }}>+ ₹{salaryBreakdown.overtimePay.toLocaleString('en-IN')}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− Absence Deduction ({salaryBreakdown.billableAbsents} days)</span><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.leaveDeduction.toLocaleString('en-IN')}</span></div>
+                      {salaryBreakdown.includeTds && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− TDS</span><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.tds.toLocaleString('en-IN')}</span></div>
+                      )}
                       <div style={{ borderTop: '1px solid var(--border-color)', marginTop: '0.4rem', paddingTop: '0.6rem', display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: '1rem', fontWeight: 800 }}>Net Salary</span>
                         <span style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--color-orange)' }}>₹{salaryBreakdown.netSalary.toLocaleString('en-IN')}</span>
@@ -8281,7 +8344,7 @@ const loadReimbursements = async (empId) => {
                   <div className="form-row">
                     <div className="form-group">
                       <label className="form-label">Date of Visit</label>
-                      <input type="date" className="form-input" value={reimbForm.date} onChange={(e) => setReimbForm({...reimbForm, date: e.target.value})} max={new Date().toISOString().split('T')[0]} />
+                      <input type="date" className="form-input" value={reimbForm.date} onChange={(e) => setReimbForm({...reimbForm, date: e.target.value})} max={istDate()} />
                     </div>
                     <div className="form-group">
                       <label className="form-label">Start Time</label>
@@ -8443,7 +8506,7 @@ const loadReimbursements = async (empId) => {
                         <label className="form-label">Desired / Requested Last Working Day *</label>
                         <input
                           type="date"
-                          min={new Date().toISOString().split('T')[0]}
+                          min={istDate()}
                           className="form-input"
                           value={resignationForm.requested_last_day}
                           onChange={(e) => setResignationForm({ ...resignationForm, requested_last_day: e.target.value })}
@@ -8546,7 +8609,7 @@ const loadReimbursements = async (empId) => {
 
                 {/* CASE 3: In Notice Period */}
                 {myResignation && (myResignation.status === 'notice_period' || myResignation.status === 'approved') && (() => {
-                  const todayStr = new Date().toISOString().split('T')[0];
+                  const todayStr = istDate();
                   const startD = new Date(myResignation.notice_start_date || todayStr);
                   const endD = new Date(myResignation.notice_end_date || todayStr);
                   const todayD = new Date(todayStr);
