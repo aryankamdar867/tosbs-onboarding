@@ -20,6 +20,7 @@ import {
   sendExperienceLetterEmail,
   sendResignationAcceptanceEmail
 } from './utils/letterEmailService';
+import { escapeHtml } from './utils/escapeHtml.js';
 import { saveAs } from "file-saver";
 import {
   Users, UserCheck, ShieldAlert, Award,
@@ -56,6 +57,7 @@ const FESTIVALS = [
 export const HALF_DAY_HOURS = 4;
 export const FULL_DAY_HOURS = 8;
 export const FREE_LEAVE_DAYS_PER_MONTH = 1.0;
+export const SUNDAY_WORK_POLICY = 'none'; // 'comp_off' | 'extra_pay' | 'none'
 
 // Shared IST date helper (UTC + 5:30)
 export const istDate = (d = new Date()) =>
@@ -340,10 +342,8 @@ function App() {
   const [manualAttendance, setManualAttendance] = useState({ employeeId: '', date: istDate(), status: 'present', work_type: 'office', note: '' });
   const [hrAttendanceDate, setHrAttendanceDate] = useState(istDate());
   const [hrAttendanceData, setHrAttendanceData] = useState([]);
+  const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
   const [hrAttendanceEmployee, setHrAttendanceEmployee] = useState('all');
-  const [hrAttendanceView, setHrAttendanceView] = useState('daily');
-  const [summaryMonth, setSummaryMonth] = useState(istDate().slice(0, 7));
-  const [summaryData, setSummaryData] = useState([]);
 
   // Leave state
   const [leaveApplications, setLeaveApplications] = useState([]);
@@ -1201,7 +1201,7 @@ function App() {
       console.log('Loading attendance for date:', hrAttendanceDate);
       let query = supabase
         .from('attendance')
-        .select('*, profiles(full_name, email, position)')
+        .select('id, employee_id, date, status, work_type, wfh_reason, check_in_time, check_out_time, work_hours, check_in_distance_m, check_out_distance_m, created_at, profiles(full_name, email, position)')
         .eq('date', hrAttendanceDate)
         .order('created_at', { ascending: true });
       if (hrAttendanceEmployee !== 'all') query = query.eq('employee_id', hrAttendanceEmployee);
@@ -1209,6 +1209,27 @@ function App() {
       console.log('Attendance data received:', data);
       setHrAttendanceData(data || []);
    } catch (err) { console.error('Catch error:', err); }
+  };
+
+  const handleViewAttendancePhoto = async (attendanceId, photoType, label) => {
+    setViewingPhotoModal({ title: `${label} Photo`, loading: true, url: null });
+    try {
+      const { data, error } = await supabase
+        .from('attendance')
+        .select(photoType)
+        .eq('id', attendanceId)
+        .single();
+      if (error || !data || !data[photoType]) {
+        alert('Photo not available for this record.');
+        setViewingPhotoModal(null);
+        return;
+      }
+      setViewingPhotoModal({ title: `${label} Photo`, loading: false, url: data[photoType] });
+    } catch (err) {
+      console.error(err);
+      alert('Failed to load photo.');
+      setViewingPhotoModal(null);
+    }
   };
 
   const loadHolidays = async () => {
@@ -1381,8 +1402,17 @@ function App() {
         throw new Error('Could not calculate distance to office.');
       }
 
-      if (dist > OFFICE_RADIUS && !forceWfh) {
-        setWfhPendingData({ lat, lng, dist, now, today, type });
+      // If accuracy > 100m, show warning and ask user to retry before offering WFH option
+      if (accuracy > 100 && !forceWfh) {
+        setAttendanceError(`GPS location accuracy is low (±${accuracy}m). Please enable high accuracy / Wi-Fi / location services and retry.`);
+        setAttendanceLoading(false);
+        return;
+      }
+
+      // Geofence check using max(0, distance - accuracy)
+      const effectiveDist = Math.max(0, dist - accuracy);
+      if (effectiveDist > OFFICE_RADIUS && !forceWfh) {
+        setWfhPendingData({ lat, lng, dist, effectiveDist, accuracy, now, today, type });
         setShowWfhOption(true);
         setAttendanceLoading(false);
         return;
@@ -1416,7 +1446,7 @@ function App() {
           try {
             await sendResendEmail({
               to: import.meta.env.VITE_HR_EMAIL || 'hrtosbs@gmail.com',
-              subject: `WFH Alert — ${activeEmployee.full_name} is working from home today`,
+              subject: `WFH Alert — ${escapeHtml(activeEmployee.full_name)} is working from home today`,
               html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <div style="background: #1a2d4a; padding: 24px; border-radius: 8px 8px 0 0;">
                   <h1 style="color: #c8922a; margin: 0; font-size: 22px;">TOSBS Attendance Alert</h1>
@@ -1424,10 +1454,10 @@ function App() {
                 <div style="background: #f8fafc; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e2e8f0;">
                   <h2 style="color: #1a2d4a; margin-top: 0;">Work From Home — Check In</h2>
                   <table style="width: 100%; border-collapse: collapse;">
-                    <tr><td style="padding: 8px 0; color: #64748b; width: 140px;">Employee</td><td style="padding: 8px 0; font-weight: 600; color: #0f172a;">${activeEmployee.full_name}</td></tr>
-                    <tr><td style="padding: 8px 0; color: #64748b;">Email</td><td style="padding: 8px 0; color: #0f172a;">${activeEmployee.email}</td></tr>
-                    <tr><td style="padding: 8px 0; color: #64748b;">Distance from Office</td><td style="padding: 8px 0; color: #0f172a;">${pendingData.dist}m away</td></tr>
-                    <tr><td style="padding: 8px 0; color: #64748b;">Reason</td><td style="padding: 8px 0; color: #0f172a;">${pendingData.reason || 'No reason provided'}</td></tr>
+                    <tr><td style="padding: 8px 0; color: #64748b; width: 140px;">Employee</td><td style="padding: 8px 0; font-weight: 600; color: #0f172a;">${escapeHtml(activeEmployee.full_name)}</td></tr>
+                    <tr><td style="padding: 8px 0; color: #64748b;">Email</td><td style="padding: 8px 0; color: #0f172a;">${escapeHtml(activeEmployee.email)}</td></tr>
+                    <tr><td style="padding: 8px 0; color: #64748b;">Distance from Office</td><td style="padding: 8px 0; color: #0f172a;">${escapeHtml(pendingData.dist)}m away</td></tr>
+                    <tr><td style="padding: 8px 0; color: #64748b;">Reason</td><td style="padding: 8px 0; color: #0f172a;">${escapeHtml(pendingData.reason || 'No reason provided')}</td></tr>
                   </table>
                 </div>
               </div>`
@@ -1438,8 +1468,9 @@ function App() {
         if (!todayAttendance) { setAttendanceError('No check-in found for today.'); setAttendanceLoading(false); return; }
 
         // If outside office on checkout and not already WFH — show WFH prompt
-        if (dist > OFFICE_RADIUS && !forceWfh && todayAttendance.work_type !== 'wfh') {
-          setWfhPendingData({ lat, lng, dist, now, today, type: 'out' });
+        const checkoutEffectiveDist = Math.max(0, dist - accuracy);
+        if (checkoutEffectiveDist > OFFICE_RADIUS && !forceWfh && todayAttendance.work_type !== 'wfh') {
+          setWfhPendingData({ lat, lng, dist, effectiveDist: checkoutEffectiveDist, accuracy, now, today, type: 'out' });
           setShowWfhOption(true);
           setAttendanceLoading(false);
           return;
@@ -1611,13 +1642,211 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
+  const computeSalaryBreakdownFromData = ({
+    employeeId,
+    monthlyCtc,
+    config,
+    doj,
+    offerData,
+    attendanceRecords = [],
+    approvedLeaves = [],
+    holidaysList = DEFAULT_HOLIDAYS,
+    monthStr,
+    todayStr = istDate()
+  }) => {
+    const [year, month] = monthStr.split('-');
+    const daysInMonth = new Date(parseInt(year), parseInt(month), 0).getDate();
+    const startDate = `${year}-${month}-01`;
+    const endDate = `${year}-${month}-${String(daysInMonth).padStart(2, '0')}`;
+
+    const dateMap = {};
+    attendanceRecords.forEach(r => { dateMap[r.date] = r; });
+
+    // Task G: TDS applies only if salary_config.tds_enabled is true, no name-based fallbacks
+    const includeTds = Boolean(config?.tds_enabled);
+
+    // Count working days in month (Mon-Sat, excluding Sundays)
+    let workingDaysInMonth = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const day = new Date(parseInt(year), parseInt(month) - 1, d).getDay();
+      if (day !== 0) workingDaysInMonth++;
+    }
+
+    let presentDays = 0;
+    let absentDays = 0;
+    let halfDays = 0;
+    let leaveDays = 0;
+    let weeklyOffDays = 0;
+    let holidayDays = 0;
+    let onTourDays = 0;
+    let sundayWorkedDays = 0;
+    let compOffUsed = 0;
+    let naDays = 0;
+
+    const dailyCodes = {};
+
+    // Loop every calendar day and classify via shared classifyDay
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${month}-${String(d).padStart(2, '0')}`;
+      const dow = new Date(parseInt(year), parseInt(month) - 1, d).getDay();
+      const isFestival = isDateHoliday(dateStr, holidaysList);
+      const onLeave = approvedLeaves.some(l => dateStr >= l.from_date && dateStr <= l.to_date);
+      const rec = dateMap[dateStr];
+
+      // Sunday worked tracking
+      if (dow === 0 && rec && (rec.status === 'present' || rec.status === 'p')) {
+        sundayWorkedDays++;
+      }
+
+      const code = classifyDay({ rec, dateStr, dow, isFestival, onLeave, doj, todayStr });
+      dailyCodes[d] = code;
+
+      if (code === 'NA') {
+        naDays++;
+      } else if (code === 'P') {
+        presentDays++;
+      } else if (code === 'A') {
+        absentDays++;
+      } else if (code === 'HD') {
+        halfDays++;
+      } else if (code === 'L') {
+        leaveDays++;
+      } else if (code === 'H') {
+        holidayDays++;
+      } else if (code === 'T') {
+        onTourDays++;
+        presentDays++;
+      } else if (code === 'WO') {
+        weeklyOffDays++;
+      } else if (code === 'CO') {
+        compOffUsed++;
+      }
+    }
+
+    // Sandwich rule algorithm
+    let sandwichPenaltyDays = 0;
+    let inBlock = false;
+    let blockStart = 0;
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const isNonWorking = dailyCodes[d] === 'WO' || dailyCodes[d] === 'H';
+      if (isNonWorking) {
+        if (!inBlock) {
+          inBlock = true;
+          blockStart = d;
+        }
+      }
+
+      if (inBlock && (!isNonWorking || d === daysInMonth)) {
+        const blockEnd = isNonWorking ? d : d - 1;
+        inBlock = false;
+
+        let beforeCode = null;
+        for (let b = blockStart - 1; b >= 1; b--) {
+          if (dailyCodes[b] !== 'WO' && dailyCodes[b] !== 'H') {
+            beforeCode = dailyCodes[b];
+            break;
+          }
+        }
+
+        let afterCode = null;
+        for (let a = blockEnd + 1; a <= daysInMonth; a++) {
+          if (dailyCodes[a] !== 'WO' && dailyCodes[a] !== 'H') {
+            afterCode = dailyCodes[a];
+            break;
+          }
+        }
+
+        const isAbsentOrLeave = (c) => c === 'A' || c === 'L';
+        if (beforeCode && afterCode && isAbsentOrLeave(beforeCode) && isAbsentOrLeave(afterCode)) {
+          sandwichPenaltyDays += (blockEnd - blockStart + 1);
+        }
+      }
+    }
+
+    const leavesAllowed = FREE_LEAVE_DAYS_PER_MONTH;
+    const baseLeavesTaken = absentDays + leaveDays + (halfDays * 0.5);
+    const leavesTaken = baseLeavesTaken + sandwichPenaltyDays;
+    const rawExcessLeaves = Math.max(0, leavesTaken - leavesAllowed);
+
+    // Task L: Sunday work policy ('comp_off' | 'extra_pay' | 'none')
+    const compOffCredit = (SUNDAY_WORK_POLICY === 'comp_off') ? sundayWorkedDays : 0;
+    const excessLeaves = Math.max(0, rawExcessLeaves - compOffCredit);
+    const extraDaysWorked = (SUNDAY_WORK_POLICY === 'extra_pay') ? sundayWorkedDays : 0;
+
+    const eligibleDays = Math.max(0, daysInMonth - naDays);
+    const netPayDays = Math.max(0, eligibleDays - excessLeaves + extraDaysWorked);
+    const payableDays = parseFloat(netPayDays.toFixed(2));
+
+    const perDayRate = daysInMonth > 0 ? monthlyCtc / daysInMonth : 0;
+    const grossEarned = Math.round(perDayRate * netPayDays);
+    const leaveDeduction = Math.round(Math.max(0, daysInMonth - (eligibleDays - excessLeaves)) * perDayRate);
+
+    const sandwichDeduction = Math.min(Math.round(sandwichPenaltyDays * perDayRate), leaveDeduction);
+    const plainAbsenceDeduction = Math.max(0, leaveDeduction - sandwichDeduction);
+    const plainBillableAbsents = Math.max(0, excessLeaves - sandwichPenaltyDays);
+
+    let tds = 0;
+    if (includeTds) {
+      const tdsRate = config?.tds_rate ? (config.tds_rate / 100) : 0.02;
+      tds = Math.round(grossEarned * tdsRate);
+    }
+
+    const totalDeduction = leaveDeduction + tds;
+    const netSalary = Math.max(0, grossEarned - tds);
+
+    return {
+      employeeId,
+      month: monthStr,
+      monthlyCtc,
+      perDayRate: parseFloat(perDayRate.toFixed(2)),
+      workingDaysInMonth,
+      daysInMonth,
+      presentDays,
+      absentDays,
+      leavesTaken,
+      leavesAllowed,
+      excessLeaves,
+      netPayDays: parseFloat(netPayDays.toFixed(2)),
+      payableDays,
+      extraDaysWorked,
+      eligibleDays,
+      naDays,
+      billableAbsents: parseFloat((naDays + excessLeaves).toFixed(1)),
+      plainBillableAbsents,
+      sandwichPenaltyDays,
+      sandwichDeduction,
+      plainAbsenceDeduction,
+      freeLeaveAllowance: leavesAllowed,
+      halfDays,
+      leaveDays,
+      holidayDays,
+      onTourDays,
+      weeklyOffDays,
+      sundayWorkedDays,
+      compOffUsed: compOffCredit,
+      includeTds,
+      tds: parseFloat(tds.toFixed(2)),
+      leaveDeduction: parseFloat(leaveDeduction.toFixed(2)),
+      deduction: parseFloat(totalDeduction.toFixed(2)),
+      netSalary: parseFloat(netSalary.toFixed(2)),
+      offerBreakdown: offerData ? {
+        basicMonthly: offerData.basicMonthly,
+        hraMonthly: offerData.hraMonthly,
+        convMonthly: offerData.convMonthly,
+        medMonthly: offerData.medMonthly,
+        specialMonthly: offerData.specialMonthly,
+      } : null,
+      overtimeHours: 0,
+      overtimePay: 0,
+    };
+  };
+
   const calculateSalaryForEmployee = async (employeeId, monthStr) => {
     if (!employeeId || !monthStr) return null;
     try {
       const { data: config } = await supabase.from('salary_config').select('*').eq('employee_id', employeeId).maybeSingle();
       const monthlyCtc = config?.monthly_ctc || 0;
-
-      const { data: empProfile } = await supabase.from('profiles').select('id, full_name, position').eq('id', employeeId).maybeSingle();
 
       const { data: empDetails } = await supabase.from('employee_details').select('date_of_joining').eq('employee_id', employeeId).maybeSingle();
       const doj = empDetails?.date_of_joining || null;
@@ -1640,16 +1869,6 @@ function App() {
         } catch (e) {}
       }
 
-      const nameLower = (empProfile?.full_name || '').toLowerCase();
-      let includeTds = false;
-      if (config && config.tds_enabled !== undefined && config.tds_enabled !== null) {
-        includeTds = Boolean(config.tds_enabled);
-      } else if (offerData && offerData.includeTds !== undefined && offerData.includeTds !== null) {
-        includeTds = Boolean(offerData.includeTds);
-      } else if (nameLower.includes('purva') || nameLower.includes('adarsh')) {
-        includeTds = true;
-      }
-
       const [year, month] = monthStr.split('-');
       const daysInMonth = new Date(parseInt(year), parseInt(month), 0).getDate();
       const startDate = `${year}-${month}-01`;
@@ -1663,11 +1882,6 @@ function App() {
         .lte('date', endDate)
         .order('date', { ascending: true });
 
-      const records = rows || [];
-      const dateMap = {};
-      records.forEach(r => { dateMap[r.date] = r; });
-
-      // Also fetch approved leaves for this employee in this month
       const { data: leaveRows } = await supabase
         .from('leave_applications')
         .select('from_date, to_date')
@@ -1675,249 +1889,85 @@ function App() {
         .eq('status', 'approved')
         .lte('from_date', endDate)
         .gte('to_date', startDate);
-      const approvedLeaves = leaveRows || [];
 
-      const todayStr = istDate();
-
-      // Count working days in month (Mon-Sat, excluding Sundays)
-      let workingDaysInMonth = 0;
-      for (let d = 1; d <= daysInMonth; d++) {
-        const day = new Date(parseInt(year), parseInt(month) - 1, d).getDay();
-        if (day !== 0) workingDaysInMonth++;
-      }
-
-      let presentDays = 0;
-      let absentDays = 0;
-      let halfDays = 0;
-      let leaveDays = 0;
-      let weeklyOffDays = 0;
-      let holidayDays = 0;
-      let onTourDays = 0;
-      let sundayWorkedDays = 0;
-      let compOffUsed = 0;
-      let naDays = 0;
-
-      const dailyCodes = {};
-
-      // Loop every calendar day and classify via shared classifyDay
-      for (let d = 1; d <= daysInMonth; d++) {
-        const dateStr = `${year}-${month}-${String(d).padStart(2, '0')}`;
-        const dow = new Date(parseInt(year), parseInt(month) - 1, d).getDay();
-        const isFestival = isDateHoliday(dateStr, holidays);
-        const onLeave = approvedLeaves.some(l => dateStr >= l.from_date && dateStr <= l.to_date);
-        const rec = dateMap[dateStr];
-
-        // Sunday worked tracking
-        if (dow === 0 && rec && (rec.status === 'present' || rec.status === 'p')) {
-          sundayWorkedDays++;
-        }
-
-        const code = classifyDay({ rec, dateStr, dow, isFestival, onLeave, doj, todayStr });
-        dailyCodes[d] = code;
-
-        if (code === 'NA') {
-          naDays++;
-        } else if (code === 'P') {
-          presentDays++;
-        } else if (code === 'A') {
-          absentDays++;
-        } else if (code === 'HD') {
-          halfDays++;
-        } else if (code === 'L') {
-          leaveDays++;
-        } else if (code === 'H') {
-          holidayDays++;
-        } else if (code === 'T') {
-          onTourDays++;
-          presentDays++;
-        } else if (code === 'WO') {
-          weeklyOffDays++;
-        } else if (code === 'CO') {
-          compOffUsed++;
-        }
-      }
-
-      // Sandwich rule algorithm:
-      // A Sunday ('WO') or holiday ('H') counts as a penalty day if the nearest working day before it
-      // AND the nearest working day after it (within the same month) are both 'A' or 'L' (half days do not trigger it).
-      // Consecutive non-working days (e.g. Sunday + festival) between two absences count as one sandwich block,
-      // and every day in the block is penalised.
-      let sandwichPenaltyDays = 0;
-      let inBlock = false;
-      let blockStart = 0;
-
-      for (let d = 1; d <= daysInMonth; d++) {
-        const isNonWorking = dailyCodes[d] === 'WO' || dailyCodes[d] === 'H';
-        if (isNonWorking) {
-          if (!inBlock) {
-            inBlock = true;
-            blockStart = d;
-          }
-        }
-
-        if (inBlock && (!isNonWorking || d === daysInMonth)) {
-          const blockEnd = isNonWorking ? d : d - 1;
-          inBlock = false;
-
-          // Find nearest working day before blockStart within the same month
-          let beforeCode = null;
-          for (let b = blockStart - 1; b >= 1; b--) {
-            if (dailyCodes[b] !== 'WO' && dailyCodes[b] !== 'H') {
-              beforeCode = dailyCodes[b];
-              break;
-            }
-          }
-
-          // Find nearest working day after blockEnd within the same month
-          let afterCode = null;
-          for (let a = blockEnd + 1; a <= daysInMonth; a++) {
-            if (dailyCodes[a] !== 'WO' && dailyCodes[a] !== 'H') {
-              afterCode = dailyCodes[a];
-              break;
-            }
-          }
-
-          const isAbsentOrLeave = (c) => c === 'A' || c === 'L';
-          if (beforeCode && afterCode && isAbsentOrLeave(beforeCode) && isAbsentOrLeave(afterCode)) {
-            sandwichPenaltyDays += (blockEnd - blockStart + 1);
-          }
-        }
-      }
-
-      const leavesAllowed = FREE_LEAVE_DAYS_PER_MONTH;
-      const baseLeavesTaken = absentDays + leaveDays + (halfDays * 0.5);
-      const leavesTaken = baseLeavesTaken + sandwichPenaltyDays;
-      const excessLeaves = Math.max(0, leavesTaken - leavesAllowed);
-      const eligibleDays = Math.max(0, daysInMonth - naDays);
-      const netPayDays = Math.max(0, eligibleDays - excessLeaves);
-      const payableDays = parseFloat(netPayDays.toFixed(2));
-
-      const perDayRate = daysInMonth > 0 ? monthlyCtc / daysInMonth : 0;
-      const grossEarned = Math.round(perDayRate * netPayDays);
-      const leaveDeduction = Math.round((daysInMonth - netPayDays) * perDayRate);
-
-      // Plain absence deduction and sandwich rule deduction broken out for HR UI
-      const sandwichDeduction = Math.min(Math.round(sandwichPenaltyDays * perDayRate), leaveDeduction);
-      const plainAbsenceDeduction = Math.max(0, leaveDeduction - sandwichDeduction);
-      const plainBillableAbsents = Math.max(0, excessLeaves - sandwichPenaltyDays);
-      const extraDaysWorked = 0;
-
-      let tds = 0;
-      if (includeTds) {
-        const tdsRate = config?.tds_rate ? (config.tds_rate / 100) : 0.02;
-        tds = Math.round(grossEarned * tdsRate);
-      }
-
-      const totalDeduction = leaveDeduction + tds;
-      const netSalary = Math.max(0, grossEarned - tds);
-
-      return {
+      return computeSalaryBreakdownFromData({
         employeeId,
-        month: monthStr,
         monthlyCtc,
-        perDayRate: parseFloat(perDayRate.toFixed(2)),
-        workingDaysInMonth,
-        daysInMonth,
-        presentDays,
-        absentDays,
-        leavesTaken,
-        leavesAllowed,
-        excessLeaves,
-        netPayDays: parseFloat(netPayDays.toFixed(2)),
-        payableDays,
-        extraDaysWorked,
-        eligibleDays,
-        naDays,
-        billableAbsents: parseFloat((naDays + excessLeaves).toFixed(1)),
-        plainBillableAbsents,
-        sandwichPenaltyDays,
-        sandwichDeduction,
-        plainAbsenceDeduction,
-        freeLeaveAllowance: leavesAllowed,
-        halfDays,
-        leaveDays,
-        holidayDays,
-        onTourDays,
-        weeklyOffDays,
-        sundayWorkedDays,
-        compOffUsed,
-        includeTds,
-        tds: parseFloat(tds.toFixed(2)),
-        leaveDeduction: parseFloat(leaveDeduction.toFixed(2)),
-        deduction: parseFloat(totalDeduction.toFixed(2)),
-        netSalary: parseFloat(netSalary.toFixed(2)),
-        offerBreakdown: offerData ? {
-          basicMonthly: offerData.basicMonthly,
-          hraMonthly: offerData.hraMonthly,
-          convMonthly: offerData.convMonthly,
-          medMonthly: offerData.medMonthly,
-          specialMonthly: offerData.specialMonthly,
-        } : null,
-        overtimeHours: 0,
-        overtimePay: 0,
-      };
+        config,
+        doj,
+        offerData,
+        attendanceRecords: rows || [],
+        approvedLeaves: leaveRows || [],
+        holidaysList: holidays,
+        monthStr,
+        todayStr: istDate()
+      });
     } catch (err) {
       console.error('Error calculating salary for employee:', employeeId, err);
       return null;
     }
   };
 
-  const computeSalary = async (employeeId, monthStr) => {
-    if (!employeeId || !monthStr) return;
-    setSalaryLoading(true);
-    try {
-      // Check if finalized snapshot exists in payroll_runs first
-      try {
-        const { data: snapshot } = await supabase
-          .from('payroll_runs')
-          .select('*')
-          .eq('employee_id', employeeId)
-          .eq('month', monthStr)
-          .maybeSingle();
-
-        if (snapshot && snapshot.breakdown) {
-          setSalaryBreakdown({ ...snapshot.breakdown, isFinalized: true, finalizedAt: snapshot.finalized_at });
-          if (snapshot.breakdown.monthlyCtc) {
-            setSalaryConfig({
-              monthly_ctc: snapshot.breakdown.monthlyCtc,
-              tds_enabled: snapshot.breakdown.includeTds,
-              overtime_multiplier: 1
-            });
-          }
-          setSalaryLoading(false);
-          return;
-        }
-      } catch (e) {
-        console.warn('Could not check payroll snapshot:', e);
-      }
-
-      const breakdown = await calculateSalaryForEmployee(employeeId, monthStr);
-      setSalaryBreakdown(breakdown ? { ...breakdown, isFinalized: false } : null);
-      if (breakdown) {
-        setSalaryConfig({
-          monthly_ctc: breakdown.monthlyCtc,
-          tds_enabled: breakdown.includeTds,
-          overtime_multiplier: 1
-        });
-      }
-    } catch (err) {
-      console.error('Error computing salary:', err);
-      setSalaryBreakdown(null);
-    }
-    setSalaryLoading(false);
-  };
-
   const exportSalaryMasterSheet = async () => {
     try {
-      const { data: configs } = await supabase.from('salary_config').select('*');
-      const configMap = Object.fromEntries((configs || []).map(c => [c.employee_id, c.monthly_ctc]));
+      const [year, month] = salaryMonth.split('-');
+      const daysInMonth = new Date(parseInt(year), parseInt(month), 0).getDate();
+      const startDate = `${year}-${month}-01`;
+      const endDate = `${year}-${month}-${String(daysInMonth).padStart(2, '0')}`;
 
-      const { data: details } = await supabase.from('employee_details').select('*');
-      const detailMap = Object.fromEntries((details || []).map(d => [d.employee_id, d]));
+      // Task F: Fetch all data for export in batches instead of per-employee queries
+      const [configs, details, profiles, resignations, leaves, attendances, payrollRuns] = await Promise.all([
+        fetchAll(() => supabase.from('salary_config').select('*')),
+        fetchAll(() => supabase.from('employee_details').select('*')),
+        fetchAll(() => supabase.from('profiles').select('*')),
+        fetchAll(() => supabase.from('resignations').select('*')),
+        fetchAll(() => supabase.from('leave_applications').select('employee_id, from_date, to_date').eq('status', 'approved').lte('from_date', endDate).gte('to_date', startDate)),
+        fetchAll(() => supabase.from('attendance').select('employee_id, date, status, work_type').gte('date', startDate).lte('date', endDate)),
+        fetchAll(() => supabase.from('payroll_runs').select('*').eq('month', salaryMonth)),
+      ]);
 
-      const approvedEmployees = employees.filter(e => e.status === 'approved' && (configMap[e.id] || 0) > 0);
-      if (approvedEmployees.length === 0) {
-        alert('No approved employees with salary configuration found.');
+      const configMap = Object.fromEntries(configs.map(c => [c.employee_id, c]));
+      const detailMap = Object.fromEntries(details.map(d => [d.employee_id, d]));
+      const payrollMap = Object.fromEntries(payrollRuns.map(p => [p.employee_id, p]));
+
+      // Latest resignation record per employee
+      const resignMap = {};
+      resignations.forEach(r => {
+        if (!resignMap[r.employee_id] || (r.created_at && r.created_at > (resignMap[r.employee_id].created_at || ''))) {
+          resignMap[r.employee_id] = r;
+        }
+      });
+
+      // Attendance and leave grouped by employee_id
+      const attMap = {};
+      attendances.forEach(a => {
+        if (!attMap[a.employee_id]) attMap[a.employee_id] = [];
+        attMap[a.employee_id].push(a);
+      });
+
+      const leaveMap = {};
+      leaves.forEach(l => {
+        if (!leaveMap[l.employee_id]) leaveMap[l.employee_id] = [];
+        leaveMap[l.employee_id].push(l);
+      });
+
+      // Task F: Include active approved employees AND resigned employees whose notice end date >= `${salaryMonth}-01`
+      const eligibleEmployees = profiles.filter(p => {
+        if (!p || p.role === 'hr' || p.role === 'announcement') return false;
+        const cfg = configMap[p.id];
+        if (!cfg || !cfg.monthly_ctc || cfg.monthly_ctc <= 0) return false;
+
+        const isResigned = p.status === 'resigned' || (resignMap[p.id] && (resignMap[p.id].status === 'notice_period' || resignMap[p.id].status === 'approved' || resignMap[p.id].status === 'resigned' || resignMap[p.id].status === 'deactivated'));
+        if (isResigned) {
+          const noticeEnd = resignMap[p.id]?.notice_end_date;
+          return Boolean(noticeEnd && noticeEnd >= `${salaryMonth}-01`);
+        }
+
+        return p.status === 'approved' || p.status === 'digilocker_verified';
+      }).sort((a, b) => (a.full_name || '').trim().localeCompare((b.full_name || '').trim()));
+
+      if (eligibleEmployees.length === 0) {
+        alert('No eligible employees with salary configuration found for ' + salaryMonth);
         return;
       }
 
@@ -1934,30 +1984,43 @@ function App() {
       let totalNetForMonth = 0;
       let totalSalaryPayable = 0;
 
-      for (let idx = 0; idx < approvedEmployees.length; idx++) {
-        const emp = approvedEmployees[idx];
-        const basic = configMap[emp.id] || 0;
-        const det = detailMap[emp.id] || {};
-        const breakdown = await calculateSalaryForEmployee(emp.id, salaryMonth);
+      const todayStr = istDate();
 
-        const tds = breakdown?.tds || 0;
-        const netPayDays = breakdown ? breakdown.netPayDays : 31.00;
-        const netSalaryMonth = breakdown ? Math.round(breakdown.netSalary) : basic;
-        const totalPayable = breakdown ? breakdown.netSalary : basic;
+      for (let idx = 0; idx < eligibleEmployees.length; idx++) {
+        const emp = eligibleEmployees[idx];
+        const cfg = configMap[emp.id] || {};
+        const basic = Number(cfg.monthly_ctc) || 0;
+        const det = detailMap[emp.id] || {};
+
+        // Use finalized payroll snapshot if exists, else compute in-memory
+        let breakdown = payrollMap[emp.id]?.breakdown;
+        if (!breakdown) {
+          breakdown = computeSalaryBreakdownFromData({
+            employeeId: emp.id,
+            monthlyCtc: basic,
+            config: cfg,
+            doj: det.date_of_joining || null,
+            offerData: null,
+            attendanceRecords: attMap[emp.id] || [],
+            approvedLeaves: leaveMap[emp.id] || [],
+            holidaysList: holidays,
+            monthStr: salaryMonth,
+            todayStr
+          });
+        }
+
+        const tds = Number(breakdown?.tds) || 0;
+        const netPayDays = breakdown ? Number(breakdown.netPayDays) : daysInMonth;
+        const netSalaryMonth = breakdown ? Math.round(Number(breakdown.netSalary)) : basic;
+        const totalPayable = breakdown ? Number(breakdown.netSalary) : basic;
 
         totalBasic += basic;
         totalTds += tds;
         totalNetForMonth += netSalaryMonth;
         totalSalaryPayable += totalPayable;
 
-        let dept = 'CAP';
-        const nameLower = (emp.full_name || '').toLowerCase();
-        if (nameLower.includes('raj')) dept = 'Common';
-        else if (nameLower.includes('saurabh') || nameLower.includes('vrushali') || nameLower.includes('vrushall')) dept = 'Foreign';
-        else if (nameLower.includes('neha')) dept = 'Loans';
-        else if (nameLower.includes('sabina')) dept = 'Credknow';
-        else if (emp.position?.includes('Accountant')) dept = 'Accounts';
-        else if (emp.position?.includes('CS')) dept = 'CS';
+        // Task F: Use department field from profiles/employee_details instead of guessing from names
+        const dept = emp.department || det.department || emp.position || 'General';
 
         let bankName = det.bank_name || 'Federal';
         const bankUpper = bankName.toUpperCase();
@@ -1965,58 +2028,61 @@ function App() {
         else if (bankUpper.includes('KOTAK')) bankName = 'Kotak Mahindra Bank';
         else if (bankUpper.includes('STATE') || bankUpper.includes('SBI')) bankName = 'State Bank of India';
 
+        const isResigned = emp.status === 'resigned' || (resignMap[emp.id] && resignMap[emp.id].notice_end_date);
+
+        // Task F: Write numeric cells as numbers with number formats (no toFixed/toLocaleString strings)
         salarySheetRows.push([
           idx + 1,
-          emp.full_name,
+          emp.full_name || '—',
           dept,
-          basic.toFixed(2),
-          tds > 0 ? tds.toFixed(2) : '',
-          breakdown?.leavesTaken || 0,
-          '1.00',
-          '-',
-          netPayDays.toFixed(2),
-          netSalaryMonth.toLocaleString('en-IN'),
-          '-',
-          totalPayable.toFixed(2),
-          '-',
+          basic,
+          tds,
+          Number(breakdown?.leavesTaken) || 0,
+          Number(breakdown?.freeLeaveAllowance ?? FREE_LEAVE_DAYS_PER_MONTH),
+          Number(breakdown?.extraDaysWorked) || 0,
+          netPayDays,
+          netSalaryMonth,
+          0,
+          totalPayable,
+          0,
           bankName,
-          ''
+          isResigned ? 'Resigned' : 'Active'
         ]);
 
         const accNo = (det.account_number || '').replace(/[^0-9]/g, '');
         bankPayoutRows.push([
-          (emp.full_name || '').toUpperCase(),
+          (det.bank_account_name || emp.full_name || '').toUpperCase(),
           accNo,
           det.ifsc_code || '',
-          totalPayable.toLocaleString('en-IN')
+          totalPayable
         ]);
       }
 
-      // Summary Row for Salary Sheet
+      // Summary Row for Salary Sheet (raw numbers)
       salarySheetRows.push([
         '',
         '',
-        '',
-        totalBasic.toFixed(2),
-        totalTds > 0 ? totalTds.toFixed(2) : '',
-        '',
-        '',
         'TOTAL',
+        totalBasic,
+        totalTds,
         '',
-        totalNetForMonth.toLocaleString('en-IN'),
         '',
-        totalSalaryPayable.toFixed(2),
-        '-',
+        '',
+        '',
+        totalNetForMonth,
+        '',
+        totalSalaryPayable,
+        '',
         '',
         ''
       ]);
 
-      // Summary Row for Bank Payout Sheet
+      // Summary Row for Bank Payout Sheet (raw numbers)
       bankPayoutRows.push([
         '',
         '',
         'TOTAL:',
-        totalSalaryPayable.toFixed(2)
+        totalSalaryPayable
       ]);
 
       const workbook = XLSX.utils.book_new();
@@ -2024,10 +2090,18 @@ function App() {
       // Sheet 1: Salary Sheet
       const ws1 = XLSX.utils.aoa_to_sheet(salarySheetRows);
       ws1['!cols'] = [
-        { wch: 8 }, { wch: 25 }, { wch: 12 }, { wch: 14 }, { wch: 10 },
+        { wch: 8 }, { wch: 25 }, { wch: 14 }, { wch: 14 }, { wch: 10 },
         { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 22 },
-        { wch: 26 }, { wch: 20 }, { wch: 14 }, { wch: 20 }, { wch: 10 }
+        { wch: 26 }, { wch: 20 }, { wch: 14 }, { wch: 20 }, { wch: 12 }
       ];
+      for (const cellRef in ws1) {
+        if (cellRef.startsWith('!')) continue;
+        const cell = ws1[cellRef];
+        if (cell && typeof cell.v === 'number') {
+          cell.t = 'n';
+          cell.z = '#,##0.00';
+        }
+      }
       XLSX.utils.book_append_sheet(workbook, ws1, 'Salary Sheet');
 
       // Sheet 2: Bank Payout
@@ -2035,14 +2109,22 @@ function App() {
       ws2['!cols'] = [
         { wch: 32 }, { wch: 28 }, { wch: 16 }, { wch: 18 }
       ];
+      for (const cellRef in ws2) {
+        if (cellRef.startsWith('!')) continue;
+        const cell = ws2[cellRef];
+        if (cell && typeof cell.v === 'number') {
+          cell.t = 'n';
+          cell.z = '#,##0.00';
+        }
+      }
       XLSX.utils.book_append_sheet(workbook, ws2, 'Bank Payout');
 
       const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
       const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8' });
       saveAs(blob, `TOSBS_Salary_Master_${salaryMonth}.xlsx`);
     } catch (err) {
-      console.error(err);
-      alert('Unable to export Salary Master Sheet.');
+      console.error('exportSalaryMasterSheet error:', err);
+      alert('Unable to export Salary Master Sheet: ' + (err.message || 'Unknown error'));
     }
   };
 
@@ -2101,6 +2183,13 @@ function App() {
     if (!leaveForm.reason.trim()) { setLeaveFormError('Please provide a reason.'); return; }
     if (new Date(leaveForm.from_date) > new Date(leaveForm.to_date)) { setLeaveFormError('From date cannot be after to date.'); return; }
 
+    // Task K: Allow past from_date up to 30 days back
+    const minLeaveDate = istDate(new Date(Date.now() - 30 * 24 * 3600 * 1000));
+    if (leaveForm.from_date < minLeaveDate) {
+      setLeaveFormError('Leave application cannot be dated more than 30 days in the past.');
+      return;
+    }
+
     setLeaveSubmitting(true);
     try {
       const { error } = await supabase.from('leave_applications').insert({
@@ -2110,34 +2199,29 @@ function App() {
       if (error) throw error;
 
       try {
-        await fetch(`${import.meta.env.VITE_SUPABASE_FUNCTIONS_URL}/send-notification-email`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            
-            to: import.meta.env.VITE_HR_EMAIL,
-            subject: `Leave Application — ${activeEmployee.full_name}`,
-            html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <div style="background: #1a2d4a; padding: 24px; border-radius: 8px 8px 0 0;">
-                <h1 style="color: #c8922a; margin: 0; font-size: 22px;">TOSBS Leave Application</h1>
-              </div>
-              <div style="background: #f8fafc; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e2e8f0;">
-                <table style="width: 100%; border-collapse: collapse;">
-                  <tr><td style="padding: 8px 0; color: #64748b; width: 140px;">Employee</td><td style="padding: 8px 0; font-weight: 600; color: #0f172a;">${activeEmployee.full_name}</td></tr>
-                  <tr><td style="padding: 8px 0; color: #64748b;">Leave Type</td><td style="padding: 8px 0; color: #0f172a;">${leaveForm.leave_type}</td></tr>
-                  <tr><td style="padding: 8px 0; color: #64748b;">From</td><td style="padding: 8px 0; color: #0f172a;">${leaveForm.from_date}</td></tr>
-                  <tr><td style="padding: 8px 0; color: #64748b;">To</td><td style="padding: 8px 0; color: #0f172a;">${leaveForm.to_date}</td></tr>
-                  <tr><td style="padding: 8px 0; color: #64748b;">Reason</td><td style="padding: 8px 0; color: #0f172a;">${leaveForm.reason}</td></tr>
-                </table>
-              </div>
-            </div>`
-          })
+        await sendResendEmail({
+          to: import.meta.env.VITE_HR_EMAIL || 'hrtosbs@gmail.com',
+          subject: `Leave Application — ${escapeHtml(activeEmployee.full_name)}`,
+          html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: #1a2d4a; padding: 24px; border-radius: 8px 8px 0 0;">
+              <h1 style="color: #c8922a; margin: 0; font-size: 22px;">TOSBS Leave Application</h1>
+            </div>
+            <div style="background: #f8fafc; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e2e8f0;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 8px 0; color: #64748b; width: 140px;">Employee</td><td style="padding: 8px 0; font-weight: 600; color: #0f172a;">${escapeHtml(activeEmployee.full_name)}</td></tr>
+                <tr><td style="padding: 8px 0; color: #64748b;">Leave Type</td><td style="padding: 8px 0; color: #0f172a;">${escapeHtml(leaveForm.leave_type)}</td></tr>
+                <tr><td style="padding: 8px 0; color: #64748b;">From</td><td style="padding: 8px 0; color: #0f172a;">${escapeHtml(leaveForm.from_date)}</td></tr>
+                <tr><td style="padding: 8px 0; color: #64748b;">To</td><td style="padding: 8px 0; color: #0f172a;">${escapeHtml(leaveForm.to_date)}</td></tr>
+                <tr><td style="padding: 8px 0; color: #64748b;">Reason</td><td style="padding: 8px 0; color: #0f172a;">${escapeHtml(leaveForm.reason)}</td></tr>
+              </table>
+            </div>
+          </div>`
         });
       } catch (e) { console.error('Leave email failed:', e); }
 
       setLeaveForm({ leave_type: 'CL', from_date: '', to_date: '', reason: '' });
       loadEmployeeLeaves(activeEmployee.id);
-      loadReimbursements(activeEmployee.id);
+      // Task K: Deleted stray loadReimbursements call
       alert('Leave application submitted successfully. HR will review it shortly.');
     } catch (err) {
       console.error(err);
@@ -2189,8 +2273,8 @@ function App() {
               html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <div style="background: #1a2d4a; padding: 24px; border-radius: 8px 8px 0 0;"><h1 style="color: #c8922a; margin: 0; font-size: 22px;">TOSBS Leave Update</h1></div>
                 <div style="background: #f8fafc; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e2e8f0;">
-                  <p style="color: #475569;">Dear ${empData.full_name}, your leave from <strong>${leave.from_date}</strong> to <strong>${leave.to_date}</strong> has been approved.</p>
-                  ${hrNote ? `<p style="color: #475569;"><strong>HR Note:</strong> ${hrNote}</p>` : ''}
+                  <p style="color: #475569;">Dear ${escapeHtml(empData.full_name)}, your leave from <strong>${escapeHtml(leave.from_date)}</strong> to <strong>${escapeHtml(leave.to_date)}</strong> has been approved.</p>
+                  ${hrNote ? `<p style="color: #475569;"><strong>HR Note:</strong> ${escapeHtml(hrNote)}</p>` : ''}
                 </div>
               </div>`
             });
@@ -2392,17 +2476,17 @@ const loadReimbursements = async (empId) => {
       try {
         await sendResendEmail({
           to: import.meta.env.VITE_HR_EMAIL || 'hrtosbs@gmail.com',
-          subject: `Reimbursement Request — ${activeEmployee.full_name} — ₹${total.toFixed(2)}`,
+          subject: `Reimbursement Request — ${escapeHtml(activeEmployee.full_name)} — ₹${total.toFixed(2)}`,
           html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
             <div style="background:#1a2d4a;padding:24px;border-radius:8px 8px 0 0">
               <h1 style="color:#c8922a;margin:0;font-size:22px">TOSBS Reimbursement Request</h1>
             </div>
             <div style="background:#f8fafc;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0">
               <table style="width:100%;border-collapse:collapse">
-                <tr><td style="padding:8px 0;color:#64748b;width:160px">Employee</td><td style="padding:8px 0;font-weight:600;color:#0f172a">${activeEmployee.full_name}</td></tr>
-                <tr><td style="padding:8px 0;color:#64748b">Date</td><td style="padding:8px 0;color:#0f172a">${reimbForm.date}</td></tr>
-                <tr><td style="padding:8px 0;color:#64748b">Client / Place</td><td style="padding:8px 0;color:#0f172a">${reimbForm.client_name}</td></tr>
-                <tr><td style="padding:8px 0;color:#64748b">Work Done</td><td style="padding:8px 0;color:#0f172a">${reimbForm.work_description}</td></tr>
+                <tr><td style="padding:8px 0;color:#64748b;width:160px">Employee</td><td style="padding:8px 0;font-weight:600;color:#0f172a">${escapeHtml(activeEmployee.full_name)}</td></tr>
+                <tr><td style="padding:8px 0;color:#64748b">Date</td><td style="padding:8px 0;color:#0f172a">${escapeHtml(reimbForm.date)}</td></tr>
+                <tr><td style="padding:8px 0;color:#64748b">Client / Place</td><td style="padding:8px 0;color:#0f172a">${escapeHtml(reimbForm.client_name)}</td></tr>
+                <tr><td style="padding:8px 0;color:#64748b">Work Done</td><td style="padding:8px 0;color:#0f172a">${escapeHtml(reimbForm.work_description)}</td></tr>
                 <tr><td style="padding:8px 0;color:#64748b">Total Amount</td><td style="padding:8px 0;font-weight:700;color:#c8922a;font-size:18px">₹${total.toFixed(2)}</td></tr>
               </table>
               <div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:6px;border-left:4px solid #c8922a">
@@ -3553,14 +3637,26 @@ const loadReimbursements = async (empId) => {
 
       if (profErr) throw profErr;
 
-      // Filter out HR, Announcement accounts, and Deactivated/Resigned/Inactive employees
-      const deactivatedStatuses = ['inactive', 'resigned', 'deactivated', 'disabled', 'terminated', 'offboarded'];
+      // Fetch resignations to include resigned employees whose notice end date >= 2026-08-01
+      const resignations = await fetchAll(() => supabase.from('resignations').select('employee_id, notice_end_date, status'));
+      const resignMap = {};
+      resignations.forEach(r => {
+        if (!resignMap[r.employee_id] || (r.notice_end_date && r.notice_end_date > (resignMap[r.employee_id].notice_end_date || ''))) {
+          resignMap[r.employee_id] = r;
+        }
+      });
+
+      const deactivatedStatuses = ['inactive', 'deactivated', 'disabled', 'terminated', 'offboarded'];
       const validEmployees = (profiles || [])
         .filter(p => {
           if (!p) return false;
           if (p.role === 'announcement' || p.status === 'announcement' || p.role === 'hr') return false;
           const st = (p.status || '').toLowerCase();
           if (deactivatedStatuses.includes(st)) return false;
+          if (st === 'resigned') {
+            const r = resignMap[p.id];
+            return Boolean(r && r.notice_end_date && r.notice_end_date >= '2026-08-01');
+          }
           return true;
         })
         .sort((a, b) => (a.full_name || '').trim().localeCompare((b.full_name || '').trim()));
@@ -4448,10 +4544,32 @@ const loadReimbursements = async (empId) => {
                             <td style={{ fontWeight: 600 }}>{rec.work_hours ? `${rec.work_hours}h` : '—'}</td>
                             <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{rec.check_in_distance_m ? `${rec.check_in_distance_m}m` : '—'}</td>
                             <td>
-                              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                {rec.check_in_photo && <img src={rec.check_in_photo} alt="In" title="Check In" style={{ width: '36px', height: '36px', borderRadius: '6px', objectFit: 'cover', cursor: 'pointer', border: '1px solid rgba(16,185,129,0.4)', transform: 'scaleX(-1)' }} onClick={() => window.open(rec.check_in_photo)} />}
-                                {rec.check_out_photo && <img src={rec.check_out_photo} alt="Out" title="Check Out" style={{ width: '36px', height: '36px', borderRadius: '6px', objectFit: 'cover', cursor: 'pointer', border: '1px solid rgba(59,130,246,0.4)', transform: 'scaleX(-1)' }} onClick={() => window.open(rec.check_out_photo)} />}
-                                {!rec.check_in_photo && !rec.check_out_photo && <span style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>—</span>}
+                              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                {rec.check_in_time ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleViewAttendancePhoto(rec.id, 'check_in_photo', `${rec.profiles?.full_name || 'Employee'} Check-In`)}
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ padding: '2px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                                    title="View Check-In Photo"
+                                  >
+                                    📷 In
+                                  </button>
+                                ) : null}
+                                {rec.check_out_time ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleViewAttendancePhoto(rec.id, 'check_out_photo', `${rec.profiles?.full_name || 'Employee'} Check-Out`)}
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ padding: '2px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                                    title="View Check-Out Photo"
+                                  >
+                                    📷 Out
+                                  </button>
+                                ) : null}
+                                {!rec.check_in_time && !rec.check_out_time && (
+                                  <span style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>—</span>
+                                )}
                               </div>
                             </td>
                             <td>
@@ -8640,8 +8758,8 @@ const loadReimbursements = async (empId) => {
                         <option value="CL">Casual Leave (CL)</option><option value="SL">Sick Leave (SL)</option><option value="EL">Earned Leave (EL)</option>
                       </select>
                     </div>
-                    <div className="form-group"><label className="form-label">From Date</label><input type="date" className="form-input" value={leaveForm.from_date} onChange={(e) => setLeaveForm({ ...leaveForm, from_date: e.target.value })} min={istDate()} /></div>
-                    <div className="form-group"><label className="form-label">To Date</label><input type="date" className="form-input" value={leaveForm.to_date} onChange={(e) => setLeaveForm({ ...leaveForm, to_date: e.target.value })} min={leaveForm.from_date || istDate()} /></div>
+                    <div className="form-group"><label className="form-label">From Date</label><input type="date" className="form-input" value={leaveForm.from_date} onChange={(e) => setLeaveForm({ ...leaveForm, from_date: e.target.value })} min={istDate(new Date(Date.now() - 30 * 24 * 3600 * 1000))} /></div>
+                    <div className="form-group"><label className="form-label">To Date</label><input type="date" className="form-input" value={leaveForm.to_date} onChange={(e) => setLeaveForm({ ...leaveForm, to_date: e.target.value })} min={leaveForm.from_date || istDate(new Date(Date.now() - 30 * 24 * 3600 * 1000))} /></div>
                   </div>
                   <div className="form-group"><label className="form-label">Reason</label><textarea className="form-input" placeholder="Describe your reason for leave..." value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} style={{ minHeight: '80px', resize: 'vertical' }} /></div>
                   {leaveFormError && <p style={{ color: 'var(--color-danger)', fontSize: '0.82rem', marginBottom: '0.75rem' }}>{leaveFormError}</p>}
@@ -9895,6 +10013,72 @@ const loadReimbursements = async (empId) => {
               );
             })()}
 
+          </div>
+        </div>
+      )}
+
+      {/* ATTENDANCE PHOTO VIEW MODAL */}
+      {viewingPhotoModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 99999,
+            padding: '1rem',
+          }}
+          onClick={() => setViewingPhotoModal(null)}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '12px',
+              padding: '1.5rem',
+              maxWidth: '460px',
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+              textAlign: 'center',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>{viewingPhotoModal.title}</h3>
+              <button
+                type="button"
+                onClick={() => setViewingPhotoModal(null)}
+                style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color: '#64748b' }}
+              >
+                ✕
+              </button>
+            </div>
+            {viewingPhotoModal.loading ? (
+              <div style={{ padding: '3rem 0', color: '#64748b' }}>
+                <p>Loading photo...</p>
+              </div>
+            ) : viewingPhotoModal.url ? (
+              <div>
+                <img
+                  src={viewingPhotoModal.url}
+                  alt={viewingPhotoModal.title}
+                  style={{
+                    width: '100%',
+                    maxHeight: '400px',
+                    objectFit: 'contain',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0',
+                    transform: 'scaleX(-1)',
+                  }}
+                />
+              </div>
+            ) : (
+              <p style={{ padding: '2rem 0', color: '#64748b' }}>No photo available.</p>
+            )}
           </div>
         </div>
       )}

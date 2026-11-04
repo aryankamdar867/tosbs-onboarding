@@ -1,3 +1,4 @@
+import { escapeHtml } from './escapeHtml.js';
 /**
  * letterEmailService.js
  * Dedicated Resend integration for sending official TOSBS Offer Letters,
@@ -87,20 +88,20 @@ const emailFooterHtml = () => `
  * 1. Generate HTML for Offer Letter
  */
 export const generateOfferLetterEmailHtml = ({ employee, offerData }) => {
-  const name = offerData?.fullName || offerData?.candidateName || employee?.full_name || 'Candidate';
-  const designation = offerData?.designation || employee?.position || 'Associate';
-  const department = offerData?.department || employee?.department || 'Operations';
-  const candidateCode = offerData?.candidateCode || employee?.short_code || 'TOSBS';
-  const joiningDate = offerData?.joiningDate || employee?.date_of_joining || 'As discussed';
-  const location = offerData?.location || 'Pune, India';
-  const reportingTo = offerData?.reportingTo || 'Amar Talwar';
-  const probation = offerData?.probationPeriod || '3 months';
+  const name = escapeHtml(offerData?.fullName || offerData?.candidateName || employee?.full_name || 'Candidate');
+  const designation = escapeHtml(offerData?.designation || employee?.position || 'Associate');
+  const department = escapeHtml(offerData?.department || employee?.department || 'Operations');
+  const candidateCode = escapeHtml(offerData?.candidateCode || employee?.short_code || 'TOSBS');
+  const joiningDate = escapeHtml(offerData?.joiningDate || employee?.date_of_joining || 'As discussed');
+  const location = escapeHtml(offerData?.location || 'Pune, India');
+  const reportingTo = escapeHtml(offerData?.reportingTo || 'Amar Talwar');
+  const probation = escapeHtml(offerData?.probationPeriod || '3 months');
 
   const annualCtc = Number(offerData?.annualCtc) || (Number(offerData?.monthlyCtc) ? Number(offerData.monthlyCtc) * 12 : 600000);
   const monthlyCtc = Number(offerData?.monthlyCtc) || Math.round(annualCtc / 12);
 
-  const formattedAnnual = annualCtc.toLocaleString('en-IN');
-  const formattedMonthly = monthlyCtc.toLocaleString('en-IN');
+  const formattedAnnual = escapeHtml(annualCtc.toLocaleString('en-IN'));
+  const formattedMonthly = escapeHtml(monthlyCtc.toLocaleString('en-IN'));
 
   return `
     <div style="font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 650px; margin: 0 auto; background-color: #f1f5f9; padding: 20px 10px;">
@@ -188,15 +189,16 @@ export const generateOfferLetterEmailHtml = ({ employee, offerData }) => {
  * 2. Generate HTML for Relieving Letter
  */
 export const generateRelievingLetterEmailHtml = ({ employee, letterData }) => {
-  const name = letterData?.fullName || letterData?.employeeName || employee?.full_name || 'Employee';
-  const designation = letterData?.designation || letterData?.position || employee?.position || 'Associate';
-  const department = letterData?.department || employee?.department || 'Operations';
-  const candidateCode = letterData?.candidateCode || letterData?.employeeCode || employee?.short_code || 'TOSBS';
-  const joiningDate = letterData?.joiningDate || employee?.date_of_joining || '—';
-  const lastWorkingDay = letterData?.lastWorkingDay || employee?.notice_end_date || new Date().toLocaleDateString('en-GB');
-  const resignationDate = letterData?.resignationDate || employee?.resignation_date || '—';
-  const pronoun = letterData?.pronoun || (employee?.gender === 'male' ? 'He' : 'She');
-  const posPronoun = pronoun === 'He' ? 'his' : 'her';
+  const name = escapeHtml(letterData?.fullName || letterData?.employeeName || employee?.full_name || 'Employee');
+  const designation = escapeHtml(letterData?.designation || letterData?.position || employee?.position || 'Associate');
+  const department = escapeHtml(letterData?.department || employee?.department || 'Operations');
+  const candidateCode = escapeHtml(letterData?.candidateCode || letterData?.employeeCode || employee?.short_code || 'TOSBS');
+  const joiningDate = escapeHtml(letterData?.joiningDate || employee?.date_of_joining || '—');
+  const lastWorkingDay = escapeHtml(letterData?.lastWorkingDay || employee?.notice_end_date || new Date().toLocaleDateString('en-GB'));
+  const resignationDate = escapeHtml(letterData?.resignationDate || employee?.resignation_date || '—');
+  const pronounRaw = letterData?.pronoun || (employee?.gender === 'male' ? 'He' : 'She');
+  const pronoun = escapeHtml(pronounRaw);
+  const posPronoun = escapeHtml(pronounRaw === 'He' ? 'his' : 'her');
 
   return `
     <div style="font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 650px; margin: 0 auto; background-color: #f1f5f9; padding: 20px 10px;">
@@ -278,13 +280,14 @@ export const generateRelievingLetterEmailHtml = ({ employee, letterData }) => {
  * 3. Generate HTML for Experience Letter
  */
 export const generateExperienceLetterEmailHtml = ({ employee, letterData }) => {
-  const name = letterData?.fullName || letterData?.employeeName || employee?.full_name || 'Employee';
-  const designation = letterData?.designation || letterData?.position || employee?.position || 'Associate';
-  const candidateCode = letterData?.candidateCode || letterData?.employeeCode || employee?.short_code || 'TOSBS';
-  const joiningDate = letterData?.joiningDate || employee?.date_of_joining || '—';
-  const lastWorkingDay = letterData?.lastWorkingDay || employee?.notice_end_date || new Date().toLocaleDateString('en-GB');
-  const pronoun = letterData?.pronoun || (employee?.gender === 'male' ? 'He' : 'She');
-  const posPronoun = pronoun === 'He' ? 'his' : 'her';
+  const name = escapeHtml(letterData?.fullName || letterData?.employeeName || employee?.full_name || 'Employee');
+  const designation = escapeHtml(letterData?.designation || letterData?.position || employee?.position || 'Associate');
+  const candidateCode = escapeHtml(letterData?.candidateCode || letterData?.employeeCode || employee?.short_code || 'TOSBS');
+  const joiningDate = escapeHtml(letterData?.joiningDate || employee?.date_of_joining || '—');
+  const lastWorkingDay = escapeHtml(letterData?.lastWorkingDay || employee?.notice_end_date || new Date().toLocaleDateString('en-GB'));
+  const pronounRaw = letterData?.pronoun || (employee?.gender === 'male' ? 'He' : 'She');
+  const pronoun = escapeHtml(pronounRaw);
+  const posPronoun = escapeHtml(pronounRaw === 'He' ? 'his' : 'her');
 
   return `
     <div style="font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 650px; margin: 0 auto; background-color: #f1f5f9; padding: 20px 10px;">
@@ -354,12 +357,12 @@ export const generateExperienceLetterEmailHtml = ({ employee, letterData }) => {
  * 4. Generate HTML for Resignation Acceptance & Notice Period Letter
  */
 export const generateResignationAcceptanceEmailHtml = ({ employee, resignationData }) => {
-  const name = employee?.full_name || resignationData?.profiles?.full_name || 'Employee';
-  const designation = employee?.position || resignationData?.profiles?.position || 'Associate';
+  const name = escapeHtml(employee?.full_name || resignationData?.profiles?.full_name || 'Employee');
+  const designation = escapeHtml(employee?.position || resignationData?.profiles?.position || 'Associate');
   const noticeDays = resignationData?.notice_period_days !== undefined ? Number(resignationData.notice_period_days) : 30;
-  const startDate = resignationData?.notice_start_date || new Date().toISOString().split('T')[0];
-  const endDate = resignationData?.notice_end_date || '—';
-  const hrNote = resignationData?.hr_note || '';
+  const startDate = escapeHtml(resignationData?.notice_start_date || new Date().toISOString().split('T')[0]);
+  const endDate = escapeHtml(resignationData?.notice_end_date || '—');
+  const hrNote = escapeHtml(resignationData?.hr_note || '');
 
   const isImmediate = noticeDays === 0;
 
