@@ -1969,6 +1969,9 @@ function App() {
     let naDays = 0;
 
     const dailyCodes = {};
+    const absentDates = [];
+    const halfDayDates = [];
+    const sandwichDates = [];
 
     // Loop every calendar day and classify via shared classifyDay
     for (let d = 1; d <= daysInMonth; d++) {
@@ -1992,8 +1995,10 @@ function App() {
         presentDays++;
       } else if (code === 'A') {
         absentDays++;
+        absentDates.push(dateStr);
       } else if (code === 'HD') {
         halfDays++;
+        halfDayDates.push(dateStr);
       } else if (code === 'L') {
         leaveDays++;
       } else if (code === 'H') {
@@ -2045,6 +2050,9 @@ function App() {
         const isAbsentOrLeave = (c) => c === 'A' || c === 'L';
         if (beforeCode && afterCode && isAbsentOrLeave(beforeCode) && isAbsentOrLeave(afterCode)) {
           sandwichPenaltyDays += (blockEnd - blockStart + 1);
+          for (let s = blockStart; s <= blockEnd; s++) {
+            sandwichDates.push(`${year}-${month}-${String(s).padStart(2, '0')}`);
+          }
         }
       }
     }
@@ -2095,6 +2103,9 @@ function App() {
       daysInMonth,
       presentDays,
       absentDays,
+      absentDates,
+      halfDayDates,
+      sandwichDates,
       leavesTaken,
       leavesAllowed,
       excessLeaves,
@@ -2504,6 +2515,15 @@ function App() {
           finalized_at: snapRow.finalized_at,
           finalized_by: snapRow.finalized_by,
         };
+        // If snapshot breakdown was saved without absentDates, compute live so UI displays them
+        if ((!result.absentDates || !result.absentDates.length) && (result.absentDays > 0 || result.halfDays > 0)) {
+          const liveCalc = await calculateSalaryForEmployee(employeeId, targetMonth);
+          if (liveCalc) {
+            result.absentDates = liveCalc.absentDates || [];
+            result.halfDayDates = liveCalc.halfDayDates || [];
+            result.sandwichDates = liveCalc.sandwichDates || [];
+          }
+        }
       } else {
         const calculated = await calculateSalaryForEmployee(employeeId, targetMonth);
         if (calculated) {
@@ -5094,6 +5114,145 @@ const loadReimbursements = async (empId) => {
                       <div><p style={detailLabelStyle}>Holidays</p><p style={detailValueStyle}>{salaryBreakdown.holidayDays}</p></div>
                       <div><p style={detailLabelStyle}>Sunday Worked</p><p style={{ ...detailValueStyle, color: 'var(--color-success)' }}>{salaryBreakdown.sundayWorkedDays}</p></div>
                     </div>
+
+                    {salaryBreakdown.absentDates && salaryBreakdown.absentDates.length > 0 && (
+                      <div style={{
+                        marginBottom: '1.25rem',
+                        padding: '1rem 1.25rem',
+                        backgroundColor: 'rgba(239, 68, 68, 0.06)',
+                        border: '1px solid rgba(239, 68, 68, 0.25)',
+                        borderRadius: '10px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem' }}>
+                          <AlertCircle size={16} color="var(--color-danger)" />
+                          <span style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--color-danger)' }}>
+                            Absent Dates ({salaryBreakdown.absentDates.length} day{salaryBreakdown.absentDates.length > 1 ? 's' : ''}):
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          {salaryBreakdown.absentDates.map(dateStr => {
+                            const d = new Date(dateStr + 'T00:00:00');
+                            const formatted = d.toLocaleDateString('en-IN', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                              weekday: 'short'
+                            });
+                            return (
+                              <span
+                                key={dateStr}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  padding: '4px 10px',
+                                  backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                                  color: 'var(--color-danger)',
+                                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                                  borderRadius: '6px',
+                                  fontSize: '0.8rem',
+                                  fontWeight: 600
+                                }}
+                              >
+                                {formatted}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {salaryBreakdown.sandwichPenaltyDays > 0 && salaryBreakdown.sandwichDates && salaryBreakdown.sandwichDates.length > 0 && (
+                      <div style={{
+                        marginBottom: '1.25rem',
+                        padding: '0.85rem 1.25rem',
+                        backgroundColor: 'rgba(239, 68, 68, 0.04)',
+                        border: '1px dashed rgba(239, 68, 68, 0.3)',
+                        borderRadius: '10px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                          <AlertCircle size={15} color="var(--color-danger)" />
+                          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-danger)' }}>
+                            Sandwich Penalty Dates ({salaryBreakdown.sandwichDates.length} day{salaryBreakdown.sandwichDates.length > 1 ? 's' : ''}):
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          {salaryBreakdown.sandwichDates.map(dateStr => {
+                            const d = new Date(dateStr + 'T00:00:00');
+                            const formatted = d.toLocaleDateString('en-IN', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                              weekday: 'short'
+                            });
+                            return (
+                              <span
+                                key={dateStr}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  padding: '3px 8px',
+                                  backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                                  color: 'var(--color-danger)',
+                                  border: '1px solid rgba(239, 68, 68, 0.2)',
+                                  borderRadius: '6px',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 600
+                                }}
+                              >
+                                {formatted}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {salaryBreakdown.halfDayDates && salaryBreakdown.halfDayDates.length > 0 && (
+                      <div style={{
+                        marginBottom: '1.25rem',
+                        padding: '0.85rem 1.25rem',
+                        backgroundColor: 'rgba(245, 158, 11, 0.06)',
+                        border: '1px solid rgba(245, 158, 11, 0.25)',
+                        borderRadius: '10px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                          <Clock size={15} color="var(--color-pending)" />
+                          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-pending)' }}>
+                            Half-Day Dates ({salaryBreakdown.halfDayDates.length} day{salaryBreakdown.halfDayDates.length > 1 ? 's' : ''}):
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          {salaryBreakdown.halfDayDates.map(dateStr => {
+                            const d = new Date(dateStr + 'T00:00:00');
+                            const formatted = d.toLocaleDateString('en-IN', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                              weekday: 'short'
+                            });
+                            return (
+                              <span
+                                key={dateStr}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  padding: '3px 8px',
+                                  backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                                  color: 'var(--color-pending)',
+                                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                                  borderRadius: '6px',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 600
+                                }}
+                              >
+                                {formatted}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem' }}>Monthly CTC</span><span style={{ fontSize: '0.9rem' }}>₹{salaryBreakdown.monthlyCtc.toLocaleString('en-IN')}</span></div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -8756,6 +8915,53 @@ const loadReimbursements = async (empId) => {
                       <div><p style={detailLabelStyle}>Holidays</p><p style={detailValueStyle}>{salaryBreakdown.holidayDays}</p></div>
                       <div><p style={detailLabelStyle}>Sandwich Penalty</p><p style={{ ...detailValueStyle, color: salaryBreakdown.sandwichPenaltyDays > 0 ? 'var(--color-danger)' : 'inherit' }}>{salaryBreakdown.sandwichPenaltyDays || 0} day(s)</p></div>
                     </div>
+
+                    {salaryBreakdown.absentDates && salaryBreakdown.absentDates.length > 0 && (
+                      <div style={{
+                        marginBottom: '1.25rem',
+                        padding: '0.85rem 1.15rem',
+                        backgroundColor: 'rgba(239, 68, 68, 0.06)',
+                        border: '1px solid rgba(239, 68, 68, 0.25)',
+                        borderRadius: '10px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                          <AlertCircle size={15} color="var(--color-danger)" />
+                          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-danger)' }}>
+                            Absent Dates ({salaryBreakdown.absentDates.length} day{salaryBreakdown.absentDates.length > 1 ? 's' : ''}):
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          {salaryBreakdown.absentDates.map(dateStr => {
+                            const d = new Date(dateStr + 'T00:00:00');
+                            const formatted = d.toLocaleDateString('en-IN', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                              weekday: 'short'
+                            });
+                            return (
+                              <span
+                                key={dateStr}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  padding: '3px 8px',
+                                  backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                                  color: 'var(--color-danger)',
+                                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                                  borderRadius: '6px',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 600
+                                }}
+                              >
+                                {formatted}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', padding: '1.25rem', backgroundColor: 'rgba(0,0,0,0.02)', borderRadius: '10px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem' }}>Monthly CTC</span><span style={{ fontSize: '0.9rem' }}>₹{salaryBreakdown.monthlyCtc.toLocaleString('en-IN')}</span></div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
