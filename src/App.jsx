@@ -64,45 +64,54 @@ export const istDate = (d = new Date()) =>
   new Date(d.getTime() + 5.5 * 3600 * 1000).toISOString().split('T')[0];
 
 // Default / fallback holidays (Maharashtra + National)
+// Dussehra in 2026 is 20 October 2026
 export const DEFAULT_HOLIDAYS = [
-  { date: '2026-01-01', name: "New Year's Day", is_paid: true },
-  { date: '2026-01-26', name: 'Republic Day', is_paid: true },
-  { date: '2026-02-19', name: 'Chhatrapati Shivaji Maharaj Jayanti', is_paid: true },
-  { date: '2026-03-04', name: 'Holi', is_paid: true },
-  { date: '2026-03-20', name: 'Gudi Padwa', is_paid: true },
-  { date: '2026-03-21', name: 'Eid al-Fitr', is_paid: true },
-  { date: '2026-04-14', name: 'Dr. Babasaheb Ambedkar Jayanti', is_paid: true },
-  { date: '2026-05-01', name: 'Maharashtra Day / Labour Day', is_paid: true },
-  { date: '2026-05-28', name: 'Eid al-Adha', is_paid: true },
-  { date: '2026-08-15', name: 'Independence Day', is_paid: true },
-  { date: '2026-08-28', name: 'Raksha Bandhan', is_paid: true },
-  { date: '2026-09-14', name: 'Ganesh Chaturthi', is_paid: true },
-  { date: '2026-10-02', name: 'Gandhi Jayanti', is_paid: true },
-  { date: '2026-10-19', name: 'Dussehra', is_paid: true },
-  { date: '2026-11-06', name: 'Dhanteras', is_paid: true },
-  { date: '2026-11-08', name: 'Diwali', is_paid: true },
-  { date: '2026-11-10', name: 'Bhai Dooj', is_paid: true },
-  { date: '2026-12-25', name: 'Christmas', is_paid: true },
+  { date: '2026-01-01', name: "New Year's Day", is_paid: true, recurring: true },
+  { date: '2026-01-26', name: 'Republic Day', is_paid: true, recurring: true },
+  { date: '2026-02-19', name: 'Chhatrapati Shivaji Maharaj Jayanti', is_paid: true, recurring: true },
+  { date: '2026-03-04', name: 'Holi', is_paid: true, recurring: false },
+  { date: '2026-03-20', name: 'Gudi Padwa', is_paid: true, recurring: false },
+  { date: '2026-03-21', name: 'Eid al-Fitr', is_paid: true, recurring: false },
+  { date: '2026-04-14', name: 'Dr. Babasaheb Ambedkar Jayanti', is_paid: true, recurring: true },
+  { date: '2026-05-01', name: 'Maharashtra Day / Labour Day', is_paid: true, recurring: true },
+  { date: '2026-05-28', name: 'Eid al-Adha', is_paid: true, recurring: false },
+  { date: '2026-08-15', name: 'Independence Day', is_paid: true, recurring: true },
+  { date: '2026-08-28', name: 'Raksha Bandhan', is_paid: true, recurring: false },
+  { date: '2026-09-14', name: 'Ganesh Chaturthi', is_paid: true, recurring: false },
+  { date: '2026-10-02', name: 'Gandhi Jayanti', is_paid: true, recurring: true },
+  { date: '2026-10-20', name: 'Dussehra', is_paid: true, recurring: false },
+  { date: '2026-11-06', name: 'Dhanteras', is_paid: true, recurring: false },
+  { date: '2026-11-08', name: 'Diwali', is_paid: true, recurring: false },
+  { date: '2026-11-10', name: 'Bhai Dooj', is_paid: true, recurring: false },
+  { date: '2026-12-25', name: 'Christmas', is_paid: true, recurring: true },
 ];
 
 export const isDateHoliday = (dateStr, holidayList = DEFAULT_HOLIDAYS) => {
-  if (!dateStr || !holidayList) return false;
+  if (!dateStr || !holidayList || !holidayList.length) return false;
   const mmdd = dateStr.slice(5);
-  return holidayList.some(h => 
-    h.date === dateStr || 
-    (h.date && h.date.slice(5) === mmdd) || 
-    (h.month && h.day && `${h.month}-${h.day}` === mmdd)
-  );
+  return holidayList.some(h => {
+    // Unpaid holidays must NOT be classified as 'H' (treat as normal working day)
+    if (h.is_paid === false) return false;
+    // Exact full date match
+    if (h.date === dateStr) return true;
+    // Recurring fixed holiday match
+    if (h.recurring && (h.date?.slice(5) === mmdd || (h.month && h.day && `${h.month}-${h.day}` === mmdd))) {
+      return true;
+    }
+    return false;
+  });
 };
 
 export const getTodaysFestivals = (d = new Date(), holidayList = DEFAULT_HOLIDAYS) => {
   const dateStr = istDate(d);
   const mmdd = dateStr.slice(5);
-  return (holidayList || DEFAULT_HOLIDAYS).filter(h => 
-    h.date === dateStr || 
-    (h.date && h.date.slice(5) === mmdd) || 
-    (h.month && h.day && `${h.month}-${h.day}` === mmdd)
-  );
+  return (holidayList || DEFAULT_HOLIDAYS).filter(h => {
+    if (h.date === dateStr) return true;
+    if (h.recurring && (h.date?.slice(5) === mmdd || (h.month && h.day && `${h.month}-${h.day}` === mmdd))) {
+      return true;
+    }
+    return false;
+  });
 };
 
 // Paginated Supabase fetch helper
@@ -128,13 +137,14 @@ export const classifyDay = ({ rec, dateStr, dow, isFestival, onLeave, doj, today
   if (doj && dateStr < doj) return 'NA';
 
   // 2. if an attendance record exists, check rec.status FIRST
-  // In classifyDay, a Sunday or holiday must resolve to 'WO'/'H' even if a 'leave' row exists
   if (rec) {
     const st = (rec.status || '').toLowerCase().trim();
     const wt = (rec.work_type || '').toLowerCase().trim();
 
+    // Sunday with a present record returns 'WO' so it doesn't inflate presentDays and doesn't break sandwich blocks
+    if (dow === 0) return 'WO';
+
     if (st === 'leave' || st === 'l' || wt === 'leave') {
-      if (dow === 0) return 'WO';
       if (isFestival) return 'H';
       return 'L';
     }
@@ -348,14 +358,14 @@ function App() {
   // Leave state
   const [leaveApplications, setLeaveApplications] = useState([]);
   const [salaryMonth, setSalaryMonth] = useState(istDate().slice(0, 7));
-  const [salaryConfig, setSalaryConfig] = useState({ monthly_ctc: 0, overtime_multiplier: 1.5 });
+  const [salaryConfig, setSalaryConfig] = useState({ monthly_ctc: 0, overtime_multiplier: 1.5, tds_enabled: false, tds_rate: 2 });
   const [salaryBreakdown, setSalaryBreakdown] = useState(null);
   const [hrSalaryEmployee, setHrSalaryEmployee] = useState('');
   const [salaryLoading, setSalaryLoading] = useState(false);
 
   // Holidays state (managed in DB holidays table with fallback)
   const [holidays, setHolidays] = useState(DEFAULT_HOLIDAYS);
-  const [newHoliday, setNewHoliday] = useState({ date: istDate(), name: '', is_paid: true });
+  const [newHoliday, setNewHoliday] = useState({ date: istDate(), name: '', is_paid: true, recurring: false });
 
   // Payroll snapshots state (payroll_runs table)
   const [payrollSnapshots, setPayrollSnapshots] = useState({});
@@ -813,8 +823,19 @@ function App() {
   const handleDeleteEmployee = async (id, e) => {
     e.stopPropagation();
     if (window.confirm('Are you sure you want to delete this employee onboarding profile?')) {
-      try { await supabase.from('profiles').delete().eq('id', id); loadEmployees(); if (selectedEmp?.id === id) setCurrentView('hr-dashboard'); }
-      catch (err) { console.error(err); }
+      try {
+        const { error } = await supabase.from('profiles').delete().eq('id', id);
+        if (error) {
+          console.error('Error deleting employee:', error);
+          alert('Failed to delete employee: ' + error.message);
+          return;
+        }
+        loadEmployees();
+        if (selectedEmp?.id === id) setCurrentView('hr-dashboard');
+      } catch (err) {
+        console.error('Error deleting employee:', err);
+        alert('Failed to delete employee: ' + (err.message || 'Unknown error'));
+      }
     }
   };
 
@@ -872,8 +893,14 @@ function App() {
 
   const handleSaveEmployeeEdits = async () => {
     try {
-      await supabase.from('profiles').update({ position: editEmpForm.position }).eq('id', selectedEmp.id);
-      await supabase.from('employee_details').upsert({
+      const { error: err1 } = await supabase.from('profiles').update({ position: editEmpForm.position }).eq('id', selectedEmp.id);
+      if (err1) {
+        console.error('Error updating profile position:', err1);
+        alert('Failed to save profile: ' + err1.message);
+        return;
+      }
+
+      const { error: err2 } = await supabase.from('employee_details').upsert({
         employee_id: selectedEmp.id,
         date_of_joining: editEmpForm.date_of_joining || null,
         phone_number: editEmpForm.phone_number,
@@ -888,32 +915,51 @@ function App() {
         emergency_contact1: editEmpForm.emergency_contact1,
         emergency_contact2: editEmpForm.emergency_contact2,
       }, { onConflict: 'employee_id' });
-      await supabase.from('digilocker_verifications').upsert({
+      if (err2) {
+        console.error('Error updating employee details:', err2);
+        alert('Failed to save employee details: ' + err2.message);
+        return;
+      }
+
+      const { error: err3 } = await supabase.from('digilocker_verifications').upsert({
         employee_id: selectedEmp.id,
         aadhaar_masked: editEmpForm.aadhaar_masked,
         pan_number: editEmpForm.pan_number,
         name_on_aadhaar: editEmpForm.name_on_aadhaar,
         dob_on_aadhaar: editEmpForm.dob_on_aadhaar || null,
       }, { onConflict: 'employee_id' });
+      if (err3) {
+        console.error('Error updating verifications:', err3);
+        alert('Failed to save verifications: ' + err3.message);
+        return;
+      }
 
       setSelectedEmp(prev => ({ ...prev, position: editEmpForm.position }));
       setIsEditingEmp(false);
       handleInspectEmployee({ ...selectedEmp, position: editEmpForm.position });
       loadEmployees();
+      alert('Employee changes saved successfully.');
     } catch (err) {
       console.error('Error saving employee edits:', err);
-      alert('Failed to save changes. Check console for details.');
+      alert('Failed to save changes: ' + (err.message || 'Unknown error'));
     }
   };
 
   const handleApproveOnboarding = async (id) => {
     try {
       const { error } = await supabase.from('profiles').update({ status: 'approved' }).eq('id', id);
-      if (error) throw error;
+      if (error) {
+        console.error('Error approving onboarding profile:', error);
+        alert('Failed to approve employee profile: ' + error.message);
+        return;
+      }
       setSelectedEmp(prev => prev ? { ...prev, status: 'approved' } : null);
       loadEmployees();
       alert('Employee Onboarding Profile has been approved successfully!');
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error('Error approving onboarding profile:', err);
+      alert('Failed to approve employee profile: ' + (err.message || 'Unknown error'));
+    }
   };
 
   const handleEmployeeRegister = async (e) => {
@@ -1352,9 +1398,15 @@ function App() {
 
   const loadAttendanceHistory = async (empId) => {
     try {
-      const { data } = await supabase.from('attendance').select('*').eq('employee_id', empId).order('date', { ascending: false }).limit(30);
+      const { data, error } = await supabase.from('attendance').select('*').eq('employee_id', empId).order('date', { ascending: false }).limit(30);
+      if (error) {
+        console.error('Error loading attendance history:', error);
+        return;
+      }
       setAttendanceHistory(data || []);
-    } catch { setAttendanceHistory([]); }
+    } catch (err) {
+      console.error('Error loading attendance history:', err);
+    }
   };
 
   const loadHrAttendance = async () => {
@@ -1366,10 +1418,14 @@ function App() {
         .eq('date', hrAttendanceDate)
         .order('created_at', { ascending: true });
       if (hrAttendanceEmployee !== 'all') query = query.eq('employee_id', hrAttendanceEmployee);
-      const { data } = await query;
+      const { data, error } = await query;
+      if (error) {
+        console.error('Error loading HR attendance:', error);
+        return;
+      }
       console.log('Attendance data received:', data);
       setHrAttendanceData(data || []);
-   } catch (err) { console.error('Catch error:', err); }
+   } catch (err) { console.error('Catch error loading HR attendance:', err); }
   };
 
   const handleViewAttendancePhoto = async (attendanceId, photoType, label) => {
@@ -1399,7 +1455,11 @@ function App() {
         .from('holidays')
         .select('*')
         .order('date', { ascending: true });
-      if (!error && data && data.length > 0) {
+      if (error) {
+        console.warn('Could not load holidays from database, using defaults:', error);
+        return;
+      }
+      if (data) {
         setHolidays(data);
       }
     } catch (e) {
@@ -1417,13 +1477,23 @@ function App() {
         date: newHoliday.date,
         name: newHoliday.name.trim(),
         is_paid: Boolean(newHoliday.is_paid),
+        recurring: Boolean(newHoliday.recurring),
       }, { onConflict: 'date' });
-      if (error) throw error;
+
+      if (error) {
+        console.error('Error saving holiday:', error);
+        alert('Failed to save holiday: ' + error.message);
+        return;
+      }
+
       alert('Holiday saved successfully.');
-      setNewHoliday({ date: istDate(), name: '', is_paid: true });
+      setNewHoliday({ date: istDate(), name: '', is_paid: true, recurring: false });
       await loadHolidays();
+      if (hrSalaryEmployee) {
+        await computeSalary(hrSalaryEmployee, salaryMonth);
+      }
     } catch (err) {
-      console.error(err);
+      console.error('Error saving holiday:', err);
       alert('Failed to save holiday: ' + (err.message || 'Unknown error'));
     }
   };
@@ -1435,12 +1505,21 @@ function App() {
       if (id) q = q.eq('id', id);
       else q = q.eq('date', date);
       const { error } = await q;
-      if (error) throw error;
+
+      if (error) {
+        console.error('Error deleting holiday:', error);
+        alert('Failed to delete holiday: ' + error.message);
+        return;
+      }
+
       setHolidays(prev => prev.filter(h => (id ? h.id !== id : h.date !== date)));
       alert('Holiday removed.');
+      if (hrSalaryEmployee) {
+        await computeSalary(hrSalaryEmployee, salaryMonth);
+      }
     } catch (err) {
-      console.error(err);
-      alert('Failed to delete holiday.');
+      console.error('Error deleting holiday:', err);
+      alert('Failed to delete holiday: ' + (err.message || 'Unknown error'));
     }
   };
 
@@ -1451,20 +1530,28 @@ function App() {
         .from('payroll_runs')
         .select('*')
         .eq('month', targetMonth);
-      if (!error && data) {
-        const map = {};
-        data.forEach(r => { map[r.employee_id] = r; });
-        setPayrollSnapshots(map);
-      } else {
-        setPayrollSnapshots({});
+      if (error) {
+        console.error('Error loading payroll snapshots:', error);
+        return payrollSnapshots;
       }
-    } catch {
-      setPayrollSnapshots({});
+      const map = {};
+      (data || []).forEach(r => { map[r.employee_id] = r; });
+      setPayrollSnapshots(map);
+      return map;
+    } catch (err) {
+      console.error('Error loading payroll snapshots:', err);
+      return payrollSnapshots;
     }
   };
 
   const handleFinalizePayrollMonth = async () => {
-    if (!window.confirm(`Are you sure you want to finalize payroll for ${salaryMonth}? This will compute and snapshot the salary breakdown for all active employees, and unlock official payslip downloads.`)) return;
+    const hasExisting = payrollSnapshots && Object.keys(payrollSnapshots).length > 0;
+    const confirmMsg = hasExisting
+      ? `Warning: Finalized payroll snapshots already exist for ${salaryMonth}. Re-finalizing will overwrite existing snapshots for all employees. Do you wish to proceed?`
+      : `Are you sure you want to finalize payroll for ${salaryMonth}? This will compute and snapshot the salary breakdown for all active employees, and unlock official payslip downloads.`;
+
+    if (!window.confirm(confirmMsg)) return;
+
     try {
       setIsFinalizingPayroll(true);
       const activeEmps = employees.filter(e => e.status === 'approved' || e.status === 'digilocker_verified');
@@ -1483,7 +1570,7 @@ function App() {
             month: salaryMonth,
             breakdown: breakdown,
             finalized_at: new Date().toISOString(),
-            finalized_by: user?.id || null,
+            finalized_by: hrUser?.email || 'HR Admin',
           }, { onConflict: 'employee_id,month' });
           if (!error) count++;
         }
@@ -1495,7 +1582,7 @@ function App() {
       }
       alert(`Payroll for ${salaryMonth} finalized successfully for ${count} employee(s).`);
     } catch (err) {
-      console.error(err);
+      console.error('Error finalizing payroll:', err);
       alert('Failed to finalize payroll: ' + (err.message || 'Unknown error'));
     } finally {
       setIsFinalizingPayroll(false);
@@ -1522,11 +1609,21 @@ function App() {
           check_in_time: checkInTime,
         }, { onConflict: 'employee_id,date' });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error updating manual attendance:', error);
+        alert('Failed to update attendance: ' + error.message);
+        return;
+      }
       alert('Attendance updated successfully.');
       setIsMarkingManual(false);
       loadHrAttendance();
-    } catch (err) { console.error(err); alert('Failed to update attendance.'); }
+      if (hrSalaryEmployee) {
+        computeSalary(hrSalaryEmployee, salaryMonth);
+      }
+    } catch (err) {
+      console.error('Error updating manual attendance:', err);
+      alert('Failed to update attendance: ' + (err.message || 'Unknown error'));
+    }
   };
 
   const handleMarkAttendance = async (type, forceWfh = false) => {
@@ -1673,9 +1770,14 @@ function App() {
       setShowWfhOption(false);
       loadAttendanceHistory(activeEmployee.id);
     } catch (err) {
-      if (err.code === 1) setAttendanceError('Location permission denied. Please allow location access.');
-      else setAttendanceError('Failed to mark attendance. Try again.');
-      console.error(err);
+      console.error('Error marking attendance:', err);
+      if (err.code === 1) {
+        setAttendanceError('Location permission denied. Please allow location access.');
+      } else if (err.message && err.message.toLowerCase().includes('no unique or exclusion constraint')) {
+        setAttendanceError('Attendance setup incomplete — contact HR/admin');
+      } else {
+        setAttendanceError(err.message || 'Failed to mark attendance. Try again.');
+      }
     }
     setAttendanceLoading(false);
   };
@@ -1683,9 +1785,15 @@ function App() {
   // ---------- Leave ----------
   const loadEmployeeLeaves = async (empId) => {
     try {
-      const { data } = await supabase.from('leave_applications').select('*').eq('employee_id', empId).order('applied_at', { ascending: false });
+      const { data, error } = await supabase.from('leave_applications').select('*').eq('employee_id', empId).order('applied_at', { ascending: false });
+      if (error) {
+        console.error('Error loading employee leaves:', error);
+        return;
+      }
       setLeaveApplications(data || []);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error('Error loading employee leaves:', err);
+    }
   };
   const handleAnnouncementImageUpload = (e) => {
     const file = e.target.files[0];
@@ -1798,9 +1906,15 @@ function App() {
   };
   const loadHrLeaves = async () => {
     try {
-      const { data } = await supabase.from('leave_applications').select('*, profiles(full_name, email, position)').order('applied_at', { ascending: false });
+      const { data, error } = await supabase.from('leave_applications').select('*, profiles(full_name, email, position)').order('applied_at', { ascending: false });
+      if (error) {
+        console.error('Error loading HR leaves:', error);
+        return;
+      }
       setHrLeaveApplications(data || []);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error('Error loading HR leaves:', err);
+    }
   };
 
   const computeSalaryBreakdownFromData = ({
@@ -1935,21 +2049,27 @@ function App() {
     const excessLeaves = Math.max(0, rawExcessLeaves - compOffCredit);
     const extraDaysWorked = (SUNDAY_WORK_POLICY === 'extra_pay') ? sundayWorkedDays : 0;
 
+    // Task D.1: Billable Absents = excess leave days (after free allowance and Sunday comp-off), keeping naDays out of it
+    const billableAbsents = excessLeaves;
+    const sandwichDays = Math.min(billableAbsents, sandwichPenaltyDays);
+    const plainBillableAbsents = Math.max(0, billableAbsents - sandwichDays);
+
     const eligibleDays = Math.max(0, daysInMonth - naDays);
     const netPayDays = Math.max(0, eligibleDays - excessLeaves + extraDaysWorked);
     const payableDays = parseFloat(netPayDays.toFixed(2));
 
     const perDayRate = daysInMonth > 0 ? monthlyCtc / daysInMonth : 0;
     const grossEarned = Math.round(perDayRate * netPayDays);
-    const leaveDeduction = Math.round(Math.max(0, daysInMonth - (eligibleDays - excessLeaves)) * perDayRate);
 
-    const sandwichDeduction = Math.min(Math.round(sandwichPenaltyDays * perDayRate), leaveDeduction);
-    const plainAbsenceDeduction = Math.max(0, leaveDeduction - sandwichDeduction);
-    const plainBillableAbsents = Math.max(0, excessLeaves - sandwichPenaltyDays);
+    // Task D.2: plainAbsenceDeduction + sandwichDeduction === leaveDeduction exactly
+    const sandwichDeduction = Math.round(sandwichDays * perDayRate);
+    const plainAbsenceDeduction = Math.round(plainBillableAbsents * perDayRate);
+    const leaveDeduction = plainAbsenceDeduction + sandwichDeduction;
+    const absenceDeduction = plainAbsenceDeduction;
 
     let tds = 0;
     if (includeTds) {
-      const tdsRate = config?.tds_rate ? (config.tds_rate / 100) : 0.02;
+      const tdsRate = config?.tds_rate !== undefined && config?.tds_rate !== null ? (config.tds_rate / 100) : 0.02;
       tds = Math.round(grossEarned * tdsRate);
     }
 
@@ -1973,11 +2093,13 @@ function App() {
       extraDaysWorked,
       eligibleDays,
       naDays,
-      billableAbsents: parseFloat((naDays + excessLeaves).toFixed(1)),
-      plainBillableAbsents,
+      billableAbsents: parseFloat(billableAbsents.toFixed(2)),
+      plainBillableAbsents: parseFloat(plainBillableAbsents.toFixed(2)),
       sandwichPenaltyDays,
-      sandwichDeduction,
+      absenceDeduction,
       plainAbsenceDeduction,
+      sandwichDeduction,
+      leaveDeduction,
       freeLeaveAllowance: leavesAllowed,
       halfDays,
       leaveDays,
@@ -2322,19 +2444,102 @@ function App() {
     }
   };
 
+  const computeSalary = async (employeeId, monthStr) => {
+    if (!employeeId) return null;
+    const targetMonth = monthStr || salaryMonth;
+    setSalaryLoading(true);
+    try {
+      // 1. Load payrollSnapshots for monthStr if not already loaded for that month
+      let snapRow = payrollSnapshots[employeeId];
+      if (!snapRow || snapRow.month !== targetMonth) {
+        const { data: snapData, error: snapErr } = await supabase
+          .from('payroll_runs')
+          .select('*')
+          .eq('employee_id', employeeId)
+          .eq('month', targetMonth)
+          .maybeSingle();
+        if (snapErr) {
+          console.error('Error loading snapshot in computeSalary:', snapErr);
+        }
+        snapRow = snapData || null;
+      }
+
+      // 2. Fetch salary_config row
+      const { data: cfgData, error: cfgErr } = await supabase
+        .from('salary_config')
+        .select('*')
+        .eq('employee_id', employeeId)
+        .maybeSingle();
+
+      if (cfgErr) {
+        console.error('Error loading salary config in computeSalary:', cfgErr);
+      }
+
+      if (cfgData) {
+        setSalaryConfig(prev => ({
+          ...prev,
+          monthly_ctc: cfgData.monthly_ctc !== undefined && cfgData.monthly_ctc !== null ? cfgData.monthly_ctc : 0,
+          tds_enabled: Boolean(cfgData.tds_enabled),
+          tds_rate: cfgData.tds_rate !== undefined && cfgData.tds_rate !== null ? cfgData.tds_rate : 2,
+          overtime_multiplier: cfgData.overtime_multiplier !== undefined && cfgData.overtime_multiplier !== null ? cfgData.overtime_multiplier : (prev.overtime_multiplier ?? 1.5),
+        }));
+      }
+
+      // 3. Determine breakdown and isFinalized
+      let result = null;
+      if (snapRow && snapRow.breakdown) {
+        result = {
+          ...snapRow.breakdown,
+          isFinalized: true,
+          finalized_at: snapRow.finalized_at,
+          finalized_by: snapRow.finalized_by,
+        };
+      } else {
+        const calculated = await calculateSalaryForEmployee(employeeId, targetMonth);
+        if (calculated) {
+          result = {
+            ...calculated,
+            isFinalized: false,
+          };
+        }
+      }
+
+      setSalaryBreakdown(result);
+      return result;
+    } catch (err) {
+      console.error('Error in computeSalary:', err);
+      setSalaryBreakdown(null);
+      return null;
+    } finally {
+      setSalaryLoading(false);
+    }
+  };
+
   const saveSalaryConfig = async (employeeId) => {
     try {
-      await supabase.from('salary_config').upsert({
+      const rateVal = salaryConfig.tds_rate !== '' && salaryConfig.tds_rate !== null && !isNaN(parseFloat(salaryConfig.tds_rate))
+        ? parseFloat(salaryConfig.tds_rate)
+        : 2;
+
+      const { error } = await supabase.from('salary_config').upsert({
         employee_id: employeeId,
         monthly_ctc: parseFloat(salaryConfig.monthly_ctc) || 0,
         tds_enabled: Boolean(salaryConfig.tds_enabled),
+        tds_rate: rateVal,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'employee_id' });
-      alert('Salary settings saved. Recalculating...');
-      computeSalary(employeeId, salaryMonth);
+
+      if (error) {
+        console.error('Error saving salary config:', error);
+        alert('Save failed: ' + error.message);
+        return;
+      }
+
+      alert('Salary settings saved.');
+      await computeSalary(employeeId, salaryMonth);
     } catch (err) {
-      console.error(err);
-      alert('Failed to save salary settings.');
+      console.error('Error saving salary config:', err);
+      alert('Save failed: ' + (err.message || 'Unknown error'));
     }
   };
 
@@ -2393,7 +2598,19 @@ function App() {
 
   const handleLeaveVerdict = async (leave, verdict, hrNote = '') => {
     try {
-      await supabase.from('leave_applications').update({ status: verdict, hr_note: hrNote, reviewed_at: new Date().toISOString() }).eq('id', leave.id);
+      const { error: appErr } = await supabase.from('leave_applications').update({
+        status: verdict,
+        hr_note: hrNote,
+        reviewed_at: new Date().toISOString()
+      }).eq('id', leave.id);
+
+      if (appErr) {
+        console.error('Error updating leave application:', appErr);
+        alert('Failed to update leave application: ' + appErr.message);
+        return;
+      }
+
+      const failedDates = [];
 
       if (verdict === 'approved') {
         const start = new Date(leave.from_date);
@@ -2402,26 +2619,40 @@ function App() {
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) dates.push(istDate(d));
 
         for (const date of dates) {
-          const dow = new Date(date + 'T00:00:00').getDay();
-          const isHoliday = isDateHoliday(date, holidays);
+          try {
+            const dow = new Date(date + 'T00:00:00').getDay();
+            const isHoliday = isDateHoliday(date, holidays);
 
-          // Rule A: Do NOT write 'leave' attendance rows for Sundays or holidays
-          if (dow === 0 || isHoliday) continue;
+            // Rule A: Do NOT write 'leave' attendance rows for Sundays or holidays
+            if (dow === 0 || isHoliday) continue;
 
-          // Rule A: Skip dates where the employee already has status 'present' (do not overwrite worked days)
-          const { data: existing } = await supabase
-            .from('attendance')
-            .select('id, status')
-            .eq('employee_id', leave.employee_id)
-            .eq('date', date)
-            .maybeSingle();
+            // Rule A: Skip dates where the employee already has status 'present' (do not overwrite worked days)
+            const { data: existing, error: fetchErr } = await supabase
+              .from('attendance')
+              .select('id, status')
+              .eq('employee_id', leave.employee_id)
+              .eq('date', date)
+              .maybeSingle();
 
-          if (existing) {
-            const exSt = (existing.status || '').toLowerCase().trim();
-            if (exSt === 'present' || exSt === 'p') continue; // Do not overwrite worked days
-            await supabase.from('attendance').update({ status: 'leave', work_type: 'leave' }).eq('id', existing.id);
-          } else {
-            await supabase.from('attendance').insert({ employee_id: leave.employee_id, date, status: 'leave', work_type: 'leave' });
+            if (fetchErr) throw fetchErr;
+
+            if (existing) {
+              const exSt = (existing.status || '').toLowerCase().trim();
+              if (exSt === 'present' || exSt === 'p') continue; // Do not overwrite worked days
+              const { error: updateErr } = await supabase
+                .from('attendance')
+                .update({ status: 'leave', work_type: 'leave' })
+                .eq('id', existing.id);
+              if (updateErr) throw updateErr;
+            } else {
+              const { error: insertErr } = await supabase
+                .from('attendance')
+                .insert({ employee_id: leave.employee_id, date, status: 'leave', work_type: 'leave' });
+              if (insertErr) throw insertErr;
+            }
+          } catch (dateErr) {
+            console.error(`Failed to record leave attendance on ${date}:`, dateErr);
+            failedDates.push(`${date}: ${dateErr.message || 'failed'}`);
           }
         }
 
@@ -2444,8 +2675,19 @@ function App() {
       }
 
       loadHrLeaves();
-      alert(`Leave ${verdict} successfully.`);
-    } catch (err) { console.error(err); }
+      if (failedDates.length > 0) {
+        alert(`Leave ${verdict}, but attendance row updates failed for:\n` + failedDates.join('\n'));
+      } else {
+        alert(`Leave ${verdict} successfully.`);
+      }
+
+      if (hrSalaryEmployee) {
+        computeSalary(hrSalaryEmployee, salaryMonth);
+      }
+    } catch (err) {
+      console.error('Error handling leave verdict:', err);
+      alert('Failed to process leave decision: ' + (err.message || 'Unknown error'));
+    }
   };
 
   // ---------- Celebrations & Notifications ----------
@@ -2582,9 +2824,15 @@ const loadReimbursements = async (empId) => {
 
   const loadHrReimbursements = async () => {
     try {
-      const { data } = await supabase.from('reimbursements').select('*, profiles(full_name, email, position)').order('submitted_at', { ascending: false });
+      const { data, error } = await supabase.from('reimbursements').select('*, profiles(full_name, email, position)').order('submitted_at', { ascending: false });
+      if (error) {
+        console.error('Error loading HR reimbursements:', error);
+        return;
+      }
       setHrReimbursements(data || []);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error('Error loading HR reimbursements:', err);
+    }
   };
 
   const handleReimbReceiptUpload = (e) => {
@@ -2671,15 +2919,28 @@ const loadReimbursements = async (empId) => {
 
   const handleReimbVerdict = async (reimb, verdict, hrNote = '') => {
     try {
-      await supabase.from('reimbursements').update({
+      const { error } = await supabase.from('reimbursements').update({
         status: verdict,
         hr_note: hrNote,
         reviewed_at: new Date().toISOString(),
         paid_date: verdict === 'approved' ? istDate() : null,
       }).eq('id', reimb.id);
+
+      if (error) {
+        console.error('Error updating reimbursement:', error);
+        alert('Failed to update reimbursement: ' + error.message);
+        return;
+      }
+
       loadHrReimbursements();
+      if (hrSalaryEmployee) {
+        computeSalary(hrSalaryEmployee, salaryMonth);
+      }
       alert(`Reimbursement ${verdict} successfully.`);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error('Error in handleReimbVerdict:', err);
+      alert('Failed to update reimbursement: ' + (err.message || 'Unknown error'));
+    }
   };
 
   const exportReimbursementsExcel = () => {
@@ -4757,7 +5018,18 @@ const loadReimbursements = async (empId) => {
                   <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
                     <select className="form-select" value={hrSalaryEmployee} onChange={(e) => { setHrSalaryEmployee(e.target.value); setSalaryBreakdown(null); if (e.target.value) computeSalary(e.target.value, salaryMonth); }} style={{ maxWidth: '260px' }}>
                       <option value="">Select employee...</option>
-                      {employees.filter(e => e.status === 'approved').map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+                      {(() => {
+                        const noticeEmpIds = new Set(hrResignations.filter(r => r.status === 'notice_period').map(r => r.employee_id));
+                        return employees.filter(e => {
+                          if (!e || e.role === 'hr' || e.role === 'announcement') return false;
+                          if (e.status === 'approved' || e.status === 'digilocker_verified') return true;
+                          if (noticeEmpIds.has(e.id)) return true;
+                          return false;
+                        }).map(emp => {
+                          const tag = noticeEmpIds.has(emp.id) ? ' (Notice Period)' : emp.status === 'digilocker_verified' ? ' (Verified)' : '';
+                          return <option key={emp.id} value={emp.id}>{emp.full_name}{tag}</option>;
+                        });
+                      })()}
                     </select>
                     <input type="month" className="form-input" value={salaryMonth} onChange={(e) => { setSalaryMonth(e.target.value); loadPayrollSnapshots(e.target.value); if (hrSalaryEmployee) computeSalary(hrSalaryEmployee, e.target.value); }} style={{ maxWidth: '180px' }} />
                     <button onClick={() => hrSalaryEmployee && computeSalary(hrSalaryEmployee, salaryMonth)} className="btn btn-primary" disabled={!hrSalaryEmployee || salaryLoading}>
@@ -4792,7 +5064,21 @@ const loadReimbursements = async (empId) => {
                       </div>
                       <div className="form-group" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1.5rem' }}>
                         <input type="checkbox" id="tds_enabled_chk" checked={Boolean(salaryConfig.tds_enabled)} onChange={(e) => setSalaryConfig({ ...salaryConfig, tds_enabled: e.target.checked })} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
-                        <label htmlFor="tds_enabled_chk" className="form-label" style={{ marginBottom: 0, cursor: 'pointer', fontWeight: 600 }}>Deduct 2% TDS on Payslip</label>
+                        <label htmlFor="tds_enabled_chk" className="form-label" style={{ marginBottom: 0, cursor: 'pointer', fontWeight: 600 }}>Deduct TDS on Payslip</label>
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label">TDS Rate (%)</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          style={{ width: '110px' }}
+                          min="0"
+                          max="100"
+                          step="0.1"
+                          value={salaryConfig.tds_rate !== undefined && salaryConfig.tds_rate !== null ? salaryConfig.tds_rate : 2}
+                          onChange={(e) => setSalaryConfig({ ...salaryConfig, tds_rate: e.target.value })}
+                          placeholder="2"
+                        />
                       </div>
                     </div>
                     <button onClick={() => saveSalaryConfig(hrSalaryEmployee)} className="btn btn-primary" style={{ marginTop: '1rem' }}>Save Settings</button>
@@ -4812,6 +5098,9 @@ const loadReimbursements = async (empId) => {
                       <div><p style={detailLabelStyle}>Total Absents</p><p style={{ ...detailValueStyle, color: 'var(--color-danger)' }}>{salaryBreakdown.absentDays}</p></div>
                       <div><p style={detailLabelStyle}>Free Leave ({FREE_LEAVE_DAYS_PER_MONTH}d)</p><p style={{ ...detailValueStyle, color: 'var(--color-success)' }}>{salaryBreakdown.freeLeaveAllowance}</p></div>
                       <div><p style={detailLabelStyle}>Billable Absents</p><p style={{ ...detailValueStyle, color: 'var(--color-danger)' }}>{salaryBreakdown.billableAbsents}</p></div>
+                      {salaryBreakdown.naDays > 0 && (
+                        <div><p style={detailLabelStyle}>Pre-joining Days (NA)</p><p style={{ ...detailValueStyle, color: 'var(--color-text-secondary)' }}>{salaryBreakdown.naDays}</p></div>
+                      )}
                       <div><p style={detailLabelStyle}>Half Days</p><p style={{ ...detailValueStyle, color: 'var(--color-pending)' }}>{salaryBreakdown.halfDays}</p></div>
                       <div><p style={detailLabelStyle}>Sandwich Penalty</p><p style={{ ...detailValueStyle, color: salaryBreakdown.sandwichPenaltyDays > 0 ? 'var(--color-danger)' : 'inherit' }}>{salaryBreakdown.sandwichPenaltyDays || 0} day(s)</p></div>
                       <div><p style={detailLabelStyle}>Leave Days</p><p style={detailValueStyle}>{salaryBreakdown.leaveDays}</p></div>
@@ -4821,8 +5110,8 @@ const loadReimbursements = async (empId) => {
                     <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem' }}>Monthly CTC</span><span style={{ fontSize: '0.9rem' }}>₹{salaryBreakdown.monthlyCtc.toLocaleString('en-IN')}</span></div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− Absence Deduction ({salaryBreakdown.plainBillableAbsents ?? salaryBreakdown.billableAbsents} days)</span>
-                        <span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{(salaryBreakdown.plainAbsenceDeduction ?? salaryBreakdown.leaveDeduction).toLocaleString('en-IN')}</span>
+                        <span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− Absence Deduction ({salaryBreakdown.plainBillableAbsents} day{salaryBreakdown.plainBillableAbsents === 1 ? '' : 's'})</span>
+                        <span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.plainAbsenceDeduction.toLocaleString('en-IN')}</span>
                       </div>
                       {salaryBreakdown.sandwichPenaltyDays > 0 && (
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -6377,7 +6666,7 @@ const loadReimbursements = async (empId) => {
                   <h3 style={{ fontSize: '1rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
                     📅 Add Company Holiday / Festival
                   </h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr 140px auto', gap: '1rem', alignItems: 'flex-end' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr 110px 130px auto', gap: '1rem', alignItems: 'flex-end' }}>
                     <div className="form-group" style={{ margin: 0 }}>
                       <label className="form-label">Date</label>
                       <input
@@ -6398,14 +6687,25 @@ const loadReimbursements = async (empId) => {
                       />
                     </div>
                     <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">Paid Holiday</label>
+                      <label className="form-label">Paid</label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', height: '38px', fontSize: '0.85rem' }}>
                         <input
                           type="checkbox"
                           checked={newHoliday.is_paid}
                           onChange={(e) => setNewHoliday({ ...newHoliday, is_paid: e.target.checked })}
                         />
-                        <span>Is Paid</span>
+                        <span>Paid</span>
+                      </label>
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Recurring</label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', height: '38px', fontSize: '0.85rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(newHoliday.recurring)}
+                          onChange={(e) => setNewHoliday({ ...newHoliday, recurring: e.target.checked })}
+                        />
+                        <span>Yearly</span>
                       </label>
                     </div>
                     <button onClick={handleAddHoliday} className="btn btn-primary" style={{ height: '38px', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -8380,10 +8680,10 @@ const loadReimbursements = async (empId) => {
               </div>
             </div>
             <nav style={sidebarNavStyle}>
-              <button onClick={() => setAttendanceTab('overview')} className={attendanceTab === 'overview' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'overview' ? sidebarLinkActiveStyle : sidebarLinkStyle}><LayoutDashboard size={18} /><span>Overview</span></button>
-              <button onClick={() => { setAttendanceTab('attendance'); loadTodayAttendance(activeEmployee.id); loadAttendanceHistory(activeEmployee.id); }} className={attendanceTab === 'attendance' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'attendance' ? sidebarLinkActiveStyle : sidebarLinkStyle}><Clock size={18} /><span>Attendance</span></button>
-              <button onClick={() => { setAttendanceTab('leave'); loadEmployeeLeaves(activeEmployee.id); }} className={attendanceTab === 'leave' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'leave' ? sidebarLinkActiveStyle : sidebarLinkStyle}><CalendarDays size={18} /><span>Leave</span></button>
-              <button onClick={() => { setAttendanceTab('salary'); computeSalary(activeEmployee.id, salaryMonth); }} className={attendanceTab === 'salary' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'salary' ? sidebarLinkActiveStyle : sidebarLinkStyle}><Award size={18} /><span>Salary</span></button>
+              <button onClick={() => { setAttendanceTab('overview'); loadTodayAttendance(activeEmployee.id); loadAttendanceHistory(activeEmployee.id); loadEmployeeLeaves(activeEmployee.id); computeSalary(activeEmployee.id, salaryMonth); }} className={attendanceTab === 'overview' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'overview' ? sidebarLinkActiveStyle : sidebarLinkStyle}><LayoutDashboard size={18} /><span>Overview</span></button>
+              <button onClick={() => { setAttendanceTab('attendance'); loadTodayAttendance(activeEmployee.id); loadAttendanceHistory(activeEmployee.id); loadEmployeeLeaves(activeEmployee.id); computeSalary(activeEmployee.id, salaryMonth); }} className={attendanceTab === 'attendance' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'attendance' ? sidebarLinkActiveStyle : sidebarLinkStyle}><Clock size={18} /><span>Attendance</span></button>
+              <button onClick={() => { setAttendanceTab('leave'); loadEmployeeLeaves(activeEmployee.id); loadTodayAttendance(activeEmployee.id); loadAttendanceHistory(activeEmployee.id); computeSalary(activeEmployee.id, salaryMonth); }} className={attendanceTab === 'leave' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'leave' ? sidebarLinkActiveStyle : sidebarLinkStyle}><CalendarDays size={18} /><span>Leave</span></button>
+              <button onClick={() => { setAttendanceTab('salary'); computeSalary(activeEmployee.id, salaryMonth); loadTodayAttendance(activeEmployee.id); loadEmployeeLeaves(activeEmployee.id); }} className={attendanceTab === 'salary' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'salary' ? sidebarLinkActiveStyle : sidebarLinkStyle}><Award size={18} /><span>Salary</span></button>
               <button onClick={() => { setAttendanceTab('reimbursement'); loadReimbursements(activeEmployee.id); }} className={attendanceTab === 'reimbursement' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'reimbursement' ? sidebarLinkActiveStyle : sidebarLinkStyle}><CreditCard size={18} /><span>Reimbursement</span></button>
               <button onClick={() => { setAttendanceTab('resignation'); loadEmployeeResignation(activeEmployee.id); }} className={attendanceTab === 'resignation' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'resignation' ? sidebarLinkActiveStyle : sidebarLinkStyle}><UserMinus size={18} /><span>Resignation</span></button>
               {(isNewJoiner(activeEmployee) || myOfferLetter?.data) && (
@@ -8954,8 +9254,11 @@ const loadReimbursements = async (empId) => {
 
             {attendanceTab === 'salary' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
                   <input type="month" className="form-input" value={salaryMonth} onChange={(e) => { setSalaryMonth(e.target.value); computeSalary(activeEmployee.id, e.target.value); }} style={{ maxWidth: '180px' }} />
+                  <button onClick={() => computeSalary(activeEmployee.id, salaryMonth)} className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    Refresh
+                  </button>
                 </div>
                 {salaryLoading ? (
                   <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>Calculating...</p>
@@ -8971,16 +9274,26 @@ const loadReimbursements = async (empId) => {
                         <span className="badge badge-pending">⚠️ Provisional (Unfinalized)</span>
                       )}
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                       <div><p style={detailLabelStyle}>Present Days</p><p style={detailValueStyle}>{salaryBreakdown.presentDays}</p></div>
                       <div><p style={detailLabelStyle}>Absent Days</p><p style={{ ...detailValueStyle, color: 'var(--color-danger)' }}>{salaryBreakdown.absentDays}</p></div>
                       <div><p style={detailLabelStyle}>Half Days</p><p style={{ ...detailValueStyle, color: 'var(--color-pending)' }}>{salaryBreakdown.halfDays}</p></div>
-                      <div><p style={detailLabelStyle}>Leave Days</p><p style={detailValueStyle}>{salaryBreakdown.leaveDays}</p></div>
+                      <div><p style={detailLabelStyle}>Leave Days (deductible beyond free allowance)</p><p style={detailValueStyle}>{salaryBreakdown.leaveDays}</p></div>
                       <div><p style={detailLabelStyle}>Holidays</p><p style={detailValueStyle}>{salaryBreakdown.holidayDays}</p></div>
+                      <div><p style={detailLabelStyle}>Sandwich Penalty</p><p style={{ ...detailValueStyle, color: salaryBreakdown.sandwichPenaltyDays > 0 ? 'var(--color-danger)' : 'inherit' }}>{salaryBreakdown.sandwichPenaltyDays || 0} day(s)</p></div>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', padding: '1.25rem', backgroundColor: 'rgba(0,0,0,0.02)', borderRadius: '10px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem' }}>Monthly CTC</span><span style={{ fontSize: '0.9rem' }}>₹{salaryBreakdown.monthlyCtc.toLocaleString('en-IN')}</span></div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− Absence Deduction ({salaryBreakdown.billableAbsents} days)</span><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.leaveDeduction.toLocaleString('en-IN')}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− Absence Deduction ({salaryBreakdown.plainBillableAbsents} day{salaryBreakdown.plainBillableAbsents === 1 ? '' : 's'})</span>
+                        <span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.plainAbsenceDeduction.toLocaleString('en-IN')}</span>
+                      </div>
+                      {salaryBreakdown.sandwichPenaltyDays > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− Sandwich Penalty ({salaryBreakdown.sandwichPenaltyDays} day{salaryBreakdown.sandwichPenaltyDays === 1 ? '' : 's'})</span>
+                          <span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.sandwichDeduction.toLocaleString('en-IN')}</span>
+                        </div>
+                      )}
                       {salaryBreakdown.includeTds && (
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− TDS</span><span style={{ fontSize: '0.9rem', color: 'var(--color-danger)' }}>− ₹{salaryBreakdown.tds.toLocaleString('en-IN')}</span></div>
                       )}
