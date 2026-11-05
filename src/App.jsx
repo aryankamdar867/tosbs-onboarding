@@ -1177,6 +1177,167 @@ function App() {
     stopAttendanceCamera();
   };
 
+  const stopAllCameras = () => {
+    try {
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        setStream(null);
+      }
+      setIsCameraOpen(false);
+    } catch (e) {}
+    try {
+      if (attendanceStream) {
+        attendanceStream.getTracks().forEach(t => t.stop());
+        setAttendanceStream(null);
+      }
+      setIsAttendanceCameraOpen(false);
+    } catch (e) {}
+    try {
+      if (videoRef.current && videoRef.current.srcObject) {
+        const s = videoRef.current.srcObject;
+        if (s && s.getTracks) s.getTracks().forEach(t => t.stop());
+        videoRef.current.srcObject = null;
+      }
+    } catch (e) {}
+    try {
+      if (attendanceVideoRef.current && attendanceVideoRef.current.srcObject) {
+        const s = attendanceVideoRef.current.srcObject;
+        if (s && s.getTracks) s.getTracks().forEach(t => t.stop());
+        attendanceVideoRef.current.srcObject = null;
+      }
+    } catch (e) {}
+  };
+
+  const handleEmployeeLogout = () => {
+    // Stop camera streams
+    stopAllCameras();
+
+    // 1. Reset all session-scoped state first
+    setActiveEmployee(null);
+    setHrUser(null);
+    setActiveEmpDetails(null);
+    setTodayAttendance(null);
+    setAttendanceHistory([]);
+    setLeaveApplications([]);
+    setSalaryBreakdown(null);
+    setMyOfferLetter(null);
+    setMyRelievingLetter(null);
+    setMyExperienceLetter(null);
+    setMyResignation(null);
+    setEmployeeTasks([]);
+    setNotifications([]);
+    setCelebrations([]);
+    setWishesReceived([]);
+    setAttendanceTab('overview');
+
+    // Reset login form fields
+    setEmpLoginEmail('');
+    setEmpLoginPassword('');
+    setEmpLoginError('');
+    setShortCode('');
+    setShortCodePin('');
+    setShortCodeError('');
+    setHrEmail('');
+    setHrPassword('');
+    setHrLoginError('');
+    setPerfEmail('');
+    setPerfPassword('');
+    setPerfLoginError('');
+
+    setCurrentView('splash');
+
+    try {
+      sessionStorage.clear();
+    } catch (err) {
+      console.error('Error clearing sessionStorage:', err);
+    }
+
+    // 2. Remove leftover localStorage keys starting with 'sb-' and ending with '-auth-token'
+    try {
+      Object.keys(localStorage).forEach(key => {
+        if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch (err) {
+      console.error('Error removing auth tokens from localStorage:', err);
+    }
+
+    // 3. Call supabase.auth.signOut({ scope: 'local' }) inside try/catch without blocking UI
+    try {
+      Promise.resolve(supabase.auth.signOut({ scope: 'local' })).catch(err => {
+        console.warn('supabase.auth.signOut error ignored:', err);
+      });
+    } catch (err) {
+      console.warn('supabase.auth.signOut error ignored:', err);
+    }
+  };
+
+  const handleHrLogout = () => {
+    // Stop camera streams
+    stopAllCameras();
+
+    // 1. Reset all session-scoped state first
+    setHrUser(null);
+    setActiveEmployee(null);
+    setActiveEmpDetails(null);
+    setTodayAttendance(null);
+    setAttendanceHistory([]);
+    setLeaveApplications([]);
+    setSalaryBreakdown(null);
+    setMyOfferLetter(null);
+    setMyRelievingLetter(null);
+    setMyExperienceLetter(null);
+    setMyResignation(null);
+    setEmployeeTasks([]);
+    setNotifications([]);
+    setCelebrations([]);
+    setWishesReceived([]);
+    setAttendanceTab('overview');
+
+    // Reset login form fields
+    setHrEmail('');
+    setHrPassword('');
+    setHrLoginError('');
+    setEmpLoginEmail('');
+    setEmpLoginPassword('');
+    setEmpLoginError('');
+    setShortCode('');
+    setShortCodePin('');
+    setShortCodeError('');
+    setPerfEmail('');
+    setPerfPassword('');
+    setPerfLoginError('');
+
+    setCurrentView('splash');
+
+    try {
+      sessionStorage.clear();
+    } catch (err) {
+      console.error('Error clearing sessionStorage:', err);
+    }
+
+    // 2. Remove leftover localStorage keys starting with 'sb-' and ending with '-auth-token'
+    try {
+      Object.keys(localStorage).forEach(key => {
+        if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch (err) {
+      console.error('Error removing auth tokens from localStorage:', err);
+    }
+
+    // 3. Call supabase.auth.signOut({ scope: 'local' }) inside try/catch without blocking UI
+    try {
+      Promise.resolve(supabase.auth.signOut({ scope: 'local' })).catch(err => {
+        console.warn('supabase.auth.signOut error ignored:', err);
+      });
+    } catch (err) {
+      console.warn('supabase.auth.signOut error ignored:', err);
+    }
+  };
+
   const loadTodayAttendance = async (empId) => {
     try {
       const today = istDate();
@@ -4223,7 +4384,7 @@ const loadReimbursements = async (empId) => {
                   HR Officer
                 </p>
               </div>
-              <button onClick={async () => { await supabase.auth.signOut(); setHrUser(null); setCurrentView('splash'); }} style={logoutButtonStyle} title="Sign Out"><LogOut size={16} /></button>
+              <button onClick={handleHrLogout} style={logoutButtonStyle} title="Sign Out"><LogOut size={16} /></button>
             </div>
           </div>
 
@@ -8251,7 +8412,7 @@ const loadReimbursements = async (empId) => {
                 <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeEmployee.full_name}</p>
                 <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--color-text-secondary)' }}>{activeEmployee.position || 'Employee'}</p>
               </div>
-              <button onClick={async () => { await supabase.auth.signOut(); setActiveEmployee(null); setCurrentView('splash'); }} style={logoutButtonStyle} title="Sign Out"><LogOut size={16} /></button>
+              <button onClick={handleEmployeeLogout} style={logoutButtonStyle} title="Sign Out"><LogOut size={16} /></button>
             </div>
           </div>
 
