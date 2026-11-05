@@ -1660,9 +1660,9 @@ function App() {
         throw new Error('Could not calculate distance to office.');
       }
 
-      // If accuracy > 100m, show warning and ask user to retry before offering WFH option
       if (accuracy > 100 && !forceWfh) {
-        setAttendanceError(`GPS location accuracy is low (±${accuracy}m). Please enable high accuracy / Wi-Fi / location services and retry.`);
+        setWfhPendingData({ lat, lng, dist, effectiveDist: dist, accuracy, now, today, type, lowAccuracy: true });
+        setShowWfhOption(true);
         setAttendanceLoading(false);
         return;
       }
@@ -1697,7 +1697,12 @@ function App() {
           .upsert(checkInPayload, { onConflict: 'employee_id,date' })
           .select()
           .single();
-        if (error) throw error;
+        if (error || !data) {
+          console.error('Attendance check-in error:', error);
+          setAttendanceError('Attendance not saved: ' + (error?.message || 'permission or row not found. Contact HR.'));
+          setAttendanceLoading(false);
+          return;
+        }
         setTodayAttendance(data);
 
         if (forceWfh) {
@@ -1761,7 +1766,12 @@ function App() {
           .upsert(checkOutPayload, { onConflict: 'employee_id,date' })
           .select()
           .single();
-        if (error) throw error;
+        if (error || !data) {
+          console.error('Attendance check-out error:', error);
+          setAttendanceError('Attendance not saved: ' + (error?.message || 'permission or row not found. Contact HR.'));
+          setAttendanceLoading(false);
+          return;
+        }
         setTodayAttendance(data);
       }
 
@@ -1776,7 +1786,7 @@ function App() {
       } else if (err.message && err.message.toLowerCase().includes('no unique or exclusion constraint')) {
         setAttendanceError('Attendance setup incomplete — contact HR/admin');
       } else {
-        setAttendanceError(err.message || 'Failed to mark attendance. Try again.');
+        setAttendanceError('Attendance not saved: ' + (err?.message || 'permission or row not found. Contact HR.'));
       }
     }
     setAttendanceLoading(false);
@@ -4615,16 +4625,6 @@ const loadReimbursements = async (empId) => {
                 <StickyNote size={18} /><span>HR Notes</span>
               </button>
               <button 
-                onClick={() => { setHrActiveTab('performance'); loadPerformanceData(); }} 
-                className={hrActiveTab === 'performance' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} 
-                style={hrActiveTab === 'performance' ? sidebarLinkActiveStyle : sidebarLinkStyle}
-              >
-                <CheckSquare size={18} /><span>Tasks</span>
-                {performanceTasks.filter(t => t.status === 'submitted').length > 0 && (
-                  <span style={badgeCountStyle}>{performanceTasks.filter(t => t.status === 'submitted').length}</span>
-                )}
-              </button>
-              <button 
                 onClick={() => { setHrActiveTab('announcements'); loadHrCelebrations(); }} 
                 className={hrActiveTab === 'announcements' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} 
                 style={hrActiveTab === 'announcements' ? sidebarLinkActiveStyle : sidebarLinkStyle}
@@ -4664,7 +4664,6 @@ const loadReimbursements = async (empId) => {
                     : hrActiveTab === 'experience-letters' ? 'Experience Letters'
                     : hrActiveTab === 'holidays' ? 'Company Holidays & Festivals'
                     : hrActiveTab === 'notes' ? 'Confidential HR Notes' 
-                    : hrActiveTab === 'performance' ? 'Task Management System'
                     : hrActiveTab === 'announcements' ? 'Company Announcements'
                     : 'Employee Profiles'}
                 </h1>
@@ -4680,7 +4679,6 @@ const loadReimbursements = async (empId) => {
                     : hrActiveTab === 'experience-letters' ? 'Service experience certificates and conduct appraisal records.'
                     : hrActiveTab === 'holidays' ? 'Configure company public holidays and festival calendar for salary calculation and master sheet.'
                     : hrActiveTab === 'notes' ? 'Internal confidential HR memos, employee notes, and policy logs.'
-                    : hrActiveTab === 'performance' ? 'Assign tasks to employees, monitor progress, and review deliverables.'
                     : hrActiveTab === 'announcements' ? 'Broadcast notices, events, and company-wide updates to employee portals.'
                     : 'Manage registrations and monitor your global human capital pipelines.'}
                 </p>
@@ -4695,17 +4693,6 @@ const loadReimbursements = async (empId) => {
                 <div style={{ display: 'flex', gap: '0.75rem' }}>
                   <button onClick={() => { setEditingNote(null); setNoteForm({ title: '', content: '', category: 'General', employee_id: '', priority: 'normal', is_pinned: false, tags: '' }); setShowAddNoteModal(true); }} className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                     <Plus size={18} /> Create HR Note
-                  </button>
-                </div>
-              )}
-              {hrActiveTab === 'performance' && (
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                  <button 
-                    onClick={() => { setSelectedPerformanceTask(null); setTaskModalMode('create'); setIsTaskModalOpen(true); }} 
-                    className="btn btn-primary" 
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    <Plus size={18} /> Assign New Task
                   </button>
                 </div>
               )}
@@ -7187,525 +7174,6 @@ const loadReimbursements = async (empId) => {
               );
             })()}
 
-            {/* PERFORMANCE MANAGEMENT SYSTEM TAB (RUCHI & HR ADMIN) */}
-            {hrActiveTab === 'performance' && (() => {
-              // Filters & Search
-              const filteredTasks = performanceTasks.filter(task => {
-                const searchLower = performanceSearch.toLowerCase().trim();
-                const empName = (task.employee_name || '').toLowerCase();
-                const empCode = (task.employee_code || '').toLowerCase();
-                const title = (task.title || '').toLowerCase();
-                const category = (task.category || '').toLowerCase();
-
-                const matchesSearch = !searchLower || (
-                  title.includes(searchLower) ||
-                  empName.includes(searchLower) ||
-                  empCode.includes(searchLower) ||
-                  category.includes(searchLower)
-                );
-
-                const matchesStatus = performanceFilter === 'all' || task.status === performanceFilter;
-                const matchesEmp = performanceEmployeeFilter === 'all' || task.employee_id === performanceEmployeeFilter;
-
-                return matchesSearch && matchesStatus && matchesEmp;
-              });
-
-              // Counters
-              const totalTasksCount = performanceTasks.length;
-              const assignedCount = performanceTasks.filter(t => t.status === 'assigned').length;
-              const inProgCount = performanceTasks.filter(t => t.status === 'in_progress').length;
-              const submittedCount = performanceTasks.filter(t => t.status === 'submitted').length;
-              const completedCount = performanceTasks.filter(t => t.status === 'completed').length;
-
-              // Average Score calculation
-              const evaluatedTasks = performanceTasks.filter(t => t.scorecard && t.scorecard.percentage != null);
-              const avgScore = evaluatedTasks.length > 0 
-                ? Math.round(evaluatedTasks.reduce((acc, t) => acc + Number(t.scorecard.percentage || 0), 0) / evaluatedTasks.length)
-                : 0;
-
-              return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  {/* KPI Overview Cards */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                    <div className="glass-card" style={{ padding: '1.25rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Tasks</p>
-                          <h3 style={{ margin: '4px 0 0', fontSize: '1.8rem', fontWeight: 800 }}>{totalTasksCount}</h3>
-                        </div>
-                        <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(200,146,42,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-orange)' }}>
-                          <CheckSquare size={22} />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="glass-card" style={{ padding: '1.25rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>In Progress</p>
-                          <h3 style={{ margin: '4px 0 0', fontSize: '1.8rem', fontWeight: 800, color: '#f59e0b' }}>{inProgCount}</h3>
-                        </div>
-                        <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(245,158,11,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b' }}>
-                          <Clock size={22} />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="glass-card" style={{ padding: '1.25rem', border: submittedCount > 0 ? '1.5px solid rgba(139,92,246,0.6)' : undefined, backgroundColor: submittedCount > 0 ? 'rgba(139,92,246,0.06)' : undefined }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <p style={{ margin: 0, fontSize: '0.78rem', color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>Awaiting Scorecard</p>
-                            {submittedCount > 0 && <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#a78bfa', animation: 'pulse 1.5s infinite' }} />}
-                          </div>
-                          <h3 style={{ margin: '4px 0 0', fontSize: '1.8rem', fontWeight: 800, color: '#c4b5fd' }}>{submittedCount}</h3>
-                        </div>
-                        <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(139,92,246,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a78bfa' }}>
-                          <FileText size={22} />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="glass-card" style={{ padding: '1.25rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Completed & Evaluated</p>
-                          <h3 style={{ margin: '4px 0 0', fontSize: '1.8rem', fontWeight: 800, color: '#10b981' }}>{completedCount}</h3>
-                        </div>
-                        <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981' }}>
-                          <CheckCircle2 size={22} />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="glass-card" style={{ padding: '1.25rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Avg Team Score</p>
-                          <h3 style={{ margin: '4px 0 0', fontSize: '1.8rem', fontWeight: 800, color: 'var(--color-orange)' }}>
-                            {evaluatedTasks.length > 0 ? `${avgScore}%` : '—'}
-                          </h3>
-                        </div>
-                        <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(200,146,42,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-orange)' }}>
-                          <Star size={22} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Filter & Search Bar */}
-                  <div className="glass-card" style={{ padding: '1.25rem' }}>
-                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                      <div style={{ display: 'flex', gap: '0.75rem', flex: 1, minWidth: '280px', flexWrap: 'wrap' }}>
-                        <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
-                          <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-                          <input
-                            type="text"
-                            placeholder="Search tasks, deliverables, or employees..."
-                            value={performanceSearch}
-                            onChange={(e) => setPerformanceSearch(e.target.value)}
-                            className="form-input"
-                            style={{ paddingLeft: '36px' }}
-                          />
-                        </div>
-
-                        <select
-                          className="form-input"
-                          value={performanceEmployeeFilter}
-                          onChange={(e) => setPerformanceEmployeeFilter(e.target.value)}
-                          style={{ width: 'auto', minWidth: '180px' }}
-                        >
-                          <option value="all">All Employees</option>
-                          {employees.map(emp => (
-                            <option key={emp.id} value={emp.id}>
-                              {emp.full_name} ({emp.short_code || 'EMP'})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <button
-                        onClick={() => { setSelectedPerformanceTask(null); setTaskModalMode('create'); setIsTaskModalOpen(true); }}
-                        className="btn btn-primary"
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                      >
-                        <Plus size={16} /> Assign Task
-                      </button>
-                    </div>
-
-                    {/* Status Tabs */}
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', borderTop: '1px solid var(--border-color)', paddingTop: '0.85rem' }}>
-                      {[
-                        { id: 'all', label: `All (${totalTasksCount})` },
-                        { id: 'assigned', label: `Assigned (${assignedCount})` },
-                        { id: 'in_progress', label: `In Progress (${inProgCount})` },
-                        { id: 'submitted', label: `Awaiting Scorecard (${submittedCount})`, badge: submittedCount > 0 },
-                        { id: 'completed', label: `Completed & Evaluated (${completedCount})` },
-                      ].map(tab => (
-                        <button
-                          key={tab.id}
-                          onClick={() => setPerformanceFilter(tab.id)}
-                          className={performanceFilter === tab.id ? 'btn btn-primary' : 'btn btn-secondary'}
-                          style={{
-                            padding: '5px 12px',
-                            fontSize: '0.8rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            backgroundColor: performanceFilter === tab.id ? 'var(--color-orange)' : undefined,
-                            color: performanceFilter === tab.id ? '#000' : undefined
-                          }}
-                        >
-                          {tab.label}
-                          {tab.badge && <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#ef4444' }} />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Task List / Cards */}
-                  {performanceLoading ? (
-                    <div style={{ textAlign: 'center', padding: '3rem' }}>
-                      <Clock size={28} className="animate-spin" style={{ color: 'var(--color-orange)', margin: '0 auto 1rem' }} />
-                      <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem' }}>Loading performance tasks & scorecards...</p>
-                    </div>
-                  ) : filteredTasks.length === 0 ? (
-                    <div className="glass-card" style={{ textAlign: 'center', padding: '3.5rem 1.5rem' }}>
-                      <div style={{ width: '56px', height: '56px', borderRadius: '14px', backgroundColor: 'rgba(200,146,42,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-orange)', margin: '0 auto 1rem' }}>
-                        <Target size={28} />
-                      </div>
-                      <h3 style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>No Tasks Found</h3>
-                      <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', maxWidth: '420px', margin: '0 auto 1.5rem', lineHeight: 1.5 }}>
-                        {performanceSearch || performanceFilter !== 'all' || performanceEmployeeFilter !== 'all'
-                          ? 'No tasks match your current search and filter criteria. Try resetting filters.'
-                          : 'No performance tasks have been assigned yet. Start by assigning tasks to employees.'}
-                      </p>
-                      <button
-                        onClick={() => { setSelectedPerformanceTask(null); setTaskModalMode('create'); setIsTaskModalOpen(true); }}
-                        className="btn btn-primary"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                      >
-                        <Plus size={16} /> Assign First Task
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                      {filteredTasks.map((t) => {
-                        const isSubmitted = t.status === 'submitted';
-                        const isCompleted = t.status === 'completed';
-                        const isInProgress = t.status === 'in_progress';
-                        const isAssigned = t.status === 'assigned';
-
-                        // Priority color
-                        const prio = (t.priority || 'medium').toLowerCase();
-                        const prioBadge = prio === 'urgent'
-                          ? { label: '🚨 Urgent', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' }
-                          : prio === 'high'
-                          ? { label: '⚡ High', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' }
-                          : prio === 'low'
-                          ? { label: '☕ Low', color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' }
-                          : { label: '🔹 Medium', color: '#3b82f6', bg: 'rgba(59,130,246,0.15)' };
-
-                        // Status badge
-                        const statusBadge = isCompleted
-                          ? { label: 'Completed & Evaluated', color: '#10b981', bg: 'rgba(16,185,129,0.15)' }
-                          : isSubmitted
-                          ? { label: 'Submitted (Ready for Scorecard)', color: '#a78bfa', bg: 'rgba(139,92,246,0.18)' }
-                          : isInProgress
-                          ? { label: 'In Progress', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' }
-                          : { label: 'Assigned', color: '#38bdf8', bg: 'rgba(56,189,248,0.15)' };
-
-                        const isOverdue = t.due_date && new Date(t.due_date) < new Date() && !isCompleted;
-
-                        return (
-                          <div
-                            key={t.id}
-                            className="glass-card"
-                            style={{
-                              padding: '1.25rem 1.5rem',
-                              border: isSubmitted
-                                ? '1.5px solid rgba(139,92,246,0.4)'
-                                : isCompleted
-                                ? '1px solid rgba(16,185,129,0.3)'
-                                : '1px solid var(--border-color)',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '0.85rem'
-                            }}
-                          >
-                            {/* Card Top Row */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
-                              <div style={{ flex: 1, minWidth: '280px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '6px' }}>
-                                  <span style={{
-                                    padding: '2px 8px',
-                                    borderRadius: '6px',
-                                    fontSize: '0.72rem',
-                                    fontWeight: 700,
-                                    backgroundColor: prioBadge.bg,
-                                    color: prioBadge.color
-                                  }}>
-                                    {prioBadge.label}
-                                  </span>
-
-                                  <span style={{
-                                    padding: '2px 8px',
-                                    borderRadius: '6px',
-                                    fontSize: '0.72rem',
-                                    fontWeight: 600,
-                                    backgroundColor: 'rgba(255,255,255,0.06)',
-                                    color: 'var(--color-text-secondary)'
-                                  }}>
-                                    {t.category || 'General'}
-                                  </span>
-
-                                  <span style={{
-                                    padding: '2px 8px',
-                                    borderRadius: '6px',
-                                    fontSize: '0.72rem',
-                                    fontWeight: 700,
-                                    backgroundColor: statusBadge.bg,
-                                    color: statusBadge.color
-                                  }}>
-                                    {statusBadge.label}
-                                  </span>
-
-                                  {isOverdue && (
-                                    <span style={{
-                                      padding: '2px 8px',
-                                      borderRadius: '6px',
-                                      fontSize: '0.72rem',
-                                      fontWeight: 700,
-                                      backgroundColor: 'rgba(239,68,68,0.2)',
-                                      color: '#ef4444'
-                                    }}>
-                                      ⚠️ Overdue
-                                    </span>
-                                  )}
-                                </div>
-
-                                <h3 style={{ fontSize: '1.15rem', fontWeight: 700, margin: '0 0 4px', color: '#fff' }}>
-                                  {t.title}
-                                </h3>
-
-                                {t.description && (
-                                  <p style={{ margin: '0 0 6px', fontSize: '0.84rem', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-                                    {t.description}
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Employee & Assigned By info block */}
-                              <div style={{
-                                padding: '8px 12px',
-                                backgroundColor: 'rgba(255,255,255,0.02)',
-                                borderRadius: '8px',
-                                border: '1px solid rgba(255,255,255,0.06)',
-                                minWidth: '190px',
-                                fontSize: '0.78rem'
-                              }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                  <div className="avatar-circle" style={{ width: '26px', height: '26px', fontSize: '0.75rem' }}>
-                                    {(t.employee_name || 'E').charAt(0)}
-                                  </div>
-                                  <div>
-                                    <div style={{ fontWeight: 700, color: '#fff', fontSize: '0.82rem' }}>{t.employee_name}</div>
-                                    <div style={{ color: 'var(--color-text-muted)', fontSize: '0.72rem' }}>{t.employee_code || 'EMP'} • {t.employee_position || 'Associate'}</div>
-                                  </div>
-                                </div>
-                                <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '4px', marginTop: '4px', color: 'var(--color-text-secondary)' }}>
-                                  Assigned By: <strong style={{ color: '#fff' }}>{t.assigned_by || 'Task Lead'}</strong>
-                                </div>
-                                <div style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                                  Due Date: <strong style={{ color: isOverdue ? '#ef4444' : '#fff' }}>{t.due_date}</strong>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Employee Submission Details (if submitted or completed) */}
-                            {t.submission_notes && (
-                              <div style={{
-                                padding: '10px 14px',
-                                backgroundColor: 'rgba(139,92,246,0.08)',
-                                borderRadius: '8px',
-                                border: '1px solid rgba(139,92,246,0.25)',
-                                fontSize: '0.82rem'
-                              }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                                  <span style={{ fontWeight: 700, color: '#c4b5fd', textTransform: 'uppercase', fontSize: '0.72rem' }}>
-                                    Employee Completion Handover
-                                  </span>
-                                  <span style={{ color: 'var(--color-text-muted)', fontSize: '0.72rem' }}>
-                                    {t.submitted_at ? new Date(t.submitted_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
-                                  </span>
-                                </div>
-                                <p style={{ margin: 0, color: '#e2e8f0', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
-                                  "{t.submission_notes}"
-                                </p>
-                                {t.deliverable_url && (
-                                  <div style={{ marginTop: '6px' }}>
-                                    <a
-                                      href={t.deliverable_url.startsWith('http') ? t.deliverable_url : `https://${t.deliverable_url}`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      style={{ color: 'var(--color-orange)', fontSize: '0.78rem', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
-                                    >
-                                      🔗 Open Attached Deliverable / Resource ↗
-                                    </a>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Scorecard Preview (if evaluated) */}
-                            {t.scorecard && (
-                              <div style={{
-                                padding: '10px 14px',
-                                backgroundColor: 'rgba(16,185,129,0.08)',
-                                borderRadius: '8px',
-                                border: '1px solid rgba(16,185,129,0.25)',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                flexWrap: 'wrap',
-                                gap: '0.75rem',
-                                fontSize: '0.82rem'
-                              }}>
-                                <div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                                    <span style={{ fontWeight: 800, color: '#10b981', fontSize: '0.88rem' }}>
-                                      {t.scorecard.grade || 'Grade A'} — {t.scorecard.gradeLabel || 'Evaluated'}
-                                    </span>
-                                    <span style={{ color: 'var(--color-text-secondary)' }}>•</span>
-                                    <span style={{ fontWeight: 700, color: '#fff' }}>
-                                      {t.scorecard.totalScore || 0} / 50 ({t.scorecard.percentage || 0}%)
-                                    </span>
-                                  </div>
-                                  <div style={{ color: 'var(--color-text-secondary)', fontSize: '0.75rem' }}>
-                                    Evaluated by <strong>{t.scorecard.evaluatorName || 'Task Lead'}</strong> on{' '}
-                                    {new Date(t.scorecard.evaluationDate || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                  </div>
-                                </div>
-
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedPerformanceTask(t);
-                                    setScorecardModalMode('view');
-                                    setIsScorecardModalOpen(true);
-                                  }}
-                                  className="btn btn-secondary"
-                                  style={{ padding: '5px 12px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '5px', borderColor: 'rgba(16,185,129,0.4)', color: '#10b981' }}
-                                >
-                                  <Award size={14} /> View Scorecard
-                                </button>
-                              </div>
-                            )}
-
-                            {/* Bottom Actions Row */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                {/* Status Toggle Dropdown */}
-                                <select
-                                  value={t.status}
-                                  onChange={(e) => handleUpdateTaskStatus(t, e.target.value)}
-                                  style={{
-                                    padding: '4px 8px',
-                                    borderRadius: '6px',
-                                    fontSize: '0.75rem',
-                                    backgroundColor: 'rgba(255,255,255,0.05)',
-                                    color: '#fff',
-                                    border: '1px solid rgba(255,255,255,0.15)',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  <option value="assigned">Status: Assigned</option>
-                                  <option value="in_progress">Status: In Progress</option>
-                                  <option value="submitted">Status: Submitted</option>
-                                  <option value="completed">Status: Completed</option>
-                                </select>
-
-                                <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
-                                  Assigned {new Date(t.assigned_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                                </span>
-                              </div>
-
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                {/* Evaluate / Fill Scorecard Button (Prominent for Ruchi) */}
-                                {isSubmitted || !t.scorecard ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedPerformanceTask(t);
-                                      setScorecardModalMode('evaluate');
-                                      setIsScorecardModalOpen(true);
-                                    }}
-                                    className="btn btn-primary"
-                                    style={{
-                                      padding: '5px 14px',
-                                      fontSize: '0.8rem',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '5px',
-                                      backgroundColor: isSubmitted ? 'var(--color-orange)' : undefined,
-                                      color: isSubmitted ? '#000' : undefined,
-                                      fontWeight: 700
-                                    }}
-                                  >
-                                    <Star size={14} /> {t.scorecard ? 'Update Scorecard' : 'Fill Scorecard'}
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedPerformanceTask(t);
-                                      setScorecardModalMode('evaluate');
-                                      setIsScorecardModalOpen(true);
-                                    }}
-                                    className="btn btn-secondary"
-                                    style={{ padding: '5px 10px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                    title="Edit Scorecard"
-                                  >
-                                    <Edit3 size={13} /> Edit Scorecard
-                                  </button>
-                                )}
-
-                                {/* Edit Task */}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedPerformanceTask(t);
-                                    setTaskModalMode('edit');
-                                    setIsTaskModalOpen(true);
-                                  }}
-                                  className="btn btn-secondary"
-                                  style={{ padding: '5px 8px', fontSize: '0.78rem' }}
-                                  title="Edit Task Details"
-                                >
-                                  <Edit3 size={13} />
-                                </button>
-
-                                {/* Delete Task */}
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleDeleteTask(t, e)}
-                                  className="btn btn-danger"
-                                  style={{ padding: '5px 8px', fontSize: '0.78rem' }}
-                                  title="Delete Task"
-                                >
-                                  <Trash2 size={13} />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
             {/* ANNOUNCEMENTS TAB */}
             {hrActiveTab === 'announcements' && (() => {
               const annList = notifications.filter(n => n.is_announcement);
@@ -9147,11 +8615,17 @@ const loadReimbursements = async (empId) => {
                       )}
                       {showWfhOption && (
                         <div style={{ padding: '1.25rem', backgroundColor: 'var(--color-pending-bg)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '12px', maxWidth: '380px', textAlign: 'center' }}>
-                          <p style={{ margin: '0 0 0.5rem', fontSize: '0.9rem', fontWeight: 700 }}>📍 You're outside office range</p>
-                          <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>You are <strong>{wfhPendingData?.dist}m</strong> away from the office. Working from home today?</p>
+                          <p style={{ margin: '0 0 0.5rem', fontSize: '0.9rem', fontWeight: 700 }}>
+                            {wfhPendingData?.lowAccuracy ? '📍 Could not verify office location' : "📍 You're outside office range"}
+                          </p>
+                          <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                            {wfhPendingData?.lowAccuracy
+                              ? `Your location accuracy is low (±${wfhPendingData.accuracy}m). Retry with Wi-Fi/location on, or mark as WFH.`
+                              : <>You are <strong>{wfhPendingData?.dist}m</strong> away from the office. Working from home today?</>}
+                          </p>
                           <textarea placeholder="Reason for WFH..." value={wfhPendingData?.reason || ''} onChange={(e) => setWfhPendingData(prev => ({ ...prev, reason: e.target.value }))} className="form-input" style={{ minHeight: '70px', resize: 'vertical', marginBottom: '1rem', fontSize: '0.82rem', textAlign: 'left' }} />
                           <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
-                            <button onClick={() => { setShowWfhOption(false); setAttendancePhoto(null); setWfhPendingData(null); }} className="btn btn-secondary" style={{ fontSize: '0.85rem' }}>Cancel</button>
+                            <button onClick={() => { setShowWfhOption(false); setAttendancePhoto(null); setWfhPendingData(null); setAttendanceError(''); }} className="btn btn-secondary" style={{ fontSize: '0.85rem' }}>Cancel</button>
                             <button onClick={() => handleMarkAttendance(wfhPendingData?.type, true)} className="btn btn-primary" disabled={attendanceLoading} style={{ fontSize: '0.85rem' }}>{attendanceLoading ? 'Submitting...' : '🏠 Yes, Mark as WFH'}</button>
                           </div>
                           <p style={{ margin: '0.75rem 0 0', fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>HR will be notified automatically via email.</p>
