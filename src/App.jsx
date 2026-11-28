@@ -4603,7 +4603,7 @@ const loadReimbursements = async (empId) => {
                 <img src="/Capture.JPG" alt="TOSBS" style={{ height: '32px', objectFit: 'contain' }} />
               </div>
             </div>
-            <nav style={sidebarNavStyle}>
+            <nav className="sidebar-nav" style={sidebarNavStyle}>
               <button onClick={() => setHrActiveTab('analytics')} className={hrActiveTab === 'analytics' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={hrActiveTab === 'analytics' ? sidebarLinkActiveStyle : sidebarLinkStyle}>
                 <LayoutDashboard size={18} /><span>Dashboard</span>
               </button>
@@ -8306,7 +8306,7 @@ const loadReimbursements = async (empId) => {
                 <img src="/Capture.JPG" alt="TOSBS" style={{ height: '32px', objectFit: 'contain' }} />
               </div>
             </div>
-            <nav style={sidebarNavStyle}>
+            <nav className="sidebar-nav" style={sidebarNavStyle}>
               <button onClick={() => { setAttendanceTab('overview'); loadTodayAttendance(activeEmployee.id); loadAttendanceHistory(activeEmployee.id); loadEmployeeLeaves(activeEmployee.id); computeSalary(activeEmployee.id, salaryMonth); }} className={attendanceTab === 'overview' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'overview' ? sidebarLinkActiveStyle : sidebarLinkStyle}><LayoutDashboard size={18} /><span>Overview</span></button>
               <button onClick={() => { setAttendanceTab('attendance'); loadTodayAttendance(activeEmployee.id); loadAttendanceHistory(activeEmployee.id); loadEmployeeLeaves(activeEmployee.id); computeSalary(activeEmployee.id, salaryMonth); }} className={attendanceTab === 'attendance' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'attendance' ? sidebarLinkActiveStyle : sidebarLinkStyle}><Clock size={18} /><span>Attendance</span></button>
               <button onClick={() => { setAttendanceTab('leave'); loadEmployeeLeaves(activeEmployee.id); loadTodayAttendance(activeEmployee.id); loadAttendanceHistory(activeEmployee.id); computeSalary(activeEmployee.id, salaryMonth); }} className={attendanceTab === 'leave' ? 'sidebar-btn sidebar-btn-active' : 'sidebar-btn'} style={attendanceTab === 'leave' ? sidebarLinkActiveStyle : sidebarLinkStyle}><CalendarDays size={18} /><span>Leave</span></button>
@@ -10324,12 +10324,12 @@ const splashCardStyle = { padding: '2.5rem', cursor: 'pointer', transition: 'all
 const splashIconWrapperStyle = { width: '56px', height: '56px', borderRadius: '14px', backgroundColor: 'rgba(0,0,0,0.03)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem' };
 const splashLinkStyle = { marginTop: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-orange)', fontSize: '0.9rem', fontWeight: 700 };
 const loginWrapperStyle = { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh', width: '100%' };
-const sidebarStyle = { width: '260px', height: '100vh', background: 'linear-gradient(180deg, #0a1628 0%, #0f1f3d 100%)', borderRight: '1px solid rgba(200,146,42,0.2)', display: 'flex', flexDirection: 'column', position: 'sticky', top: 0, flexShrink: 0 };
-const sidebarHeaderStyle = { padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', borderBottom: '1px solid var(--border-color)' };
-const sidebarNavStyle = { padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', flexGrow: 1 };
-const sidebarLinkStyle = { display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', color: '#94a3b8', fontWeight: 500, fontSize: '0.9rem', transition: 'all 0.15s ease', textAlign: 'left', backgroundColor: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', boxShadow: 'none' };
+const sidebarStyle = { width: '260px', height: '100vh', maxHeight: '100vh', background: 'linear-gradient(180deg, #0a1628 0%, #0f1f3d 100%)', borderRight: '1px solid rgba(200,146,42,0.2)', display: 'flex', flexDirection: 'column', position: 'sticky', top: 0, flexShrink: 0, overflow: 'hidden', zIndex: 100 };
+const sidebarHeaderStyle = { padding: '1.25rem 1.25rem 1rem', display: 'flex', alignItems: 'center', gap: '0.75rem', borderBottom: '1px solid var(--border-color)', flexShrink: 0 };
+const sidebarNavStyle = { padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.35rem', flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden' };
+const sidebarLinkStyle = { display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%', padding: '0.55rem 0.85rem', borderRadius: '8px', color: '#94a3b8', fontWeight: 500, fontSize: '0.875rem', transition: 'all 0.15s ease', textAlign: 'left', backgroundColor: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', boxShadow: 'none', flexShrink: 0 };
 const sidebarLinkActiveStyle = { ...sidebarLinkStyle, color: '#e0a832', backgroundColor: 'rgba(200,146,42,0.15)', borderLeft: '3px solid #c8922a', borderRadius: '0 8px 8px 0', fontWeight: 700 };
-const sidebarUserStyle = { padding: '1rem 1.25rem', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', backgroundColor: '#060910' };
+const sidebarUserStyle = { padding: '0.75rem 1.25rem', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', backgroundColor: '#060910', flexShrink: 0, marginTop: 'auto' };
 const logoutButtonStyle = { padding: '6px', borderRadius: '6px', color: 'var(--color-text-secondary)', border: 'none', background: 'none', cursor: 'pointer' };
 const badgeCountStyle = { marginLeft: 'auto', fontSize: '0.7rem', fontWeight: 700, padding: '2px 6px', borderRadius: '10px', backgroundColor: '#c8922a', color: '#0a1628' };
 const statCardStyle = { padding: '1.5rem' };
